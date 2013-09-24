@@ -326,16 +326,20 @@ func (this *LinkMgr) Send(service int, id int, req io.Reader, resp io.Writer) (e
 	url := fmt.Sprintf("http://id_%d:80/h0tb0x/%d", id, service)
 	httpResp, err := this.client.Post(url, "application/binary", req)
 	if err != nil {
+		if httpResp != nil {
+			httpResp.Body.Close()
+		}
 		return
 	}
 	if httpResp.StatusCode != http.StatusOK {
 		err = fmt.Errorf("RPC had non 200 http return code: %d", httpResp.StatusCode)
+		httpResp.Body.Close()
 		return
 	}
 	if httpResp.Header.Get("Content-Type") != "application/binary" {
 		err = fmt.Errorf("Content type mismatch")
+		httpResp.Body.Close()
 		return
 	}
 	_, err = io.Copy(resp, httpResp.Body)
-	return
 }
