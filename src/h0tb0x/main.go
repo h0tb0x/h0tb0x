@@ -21,6 +21,9 @@ import (
 	"os/signal"
 	"os/user"
 	"path"
+	"strings"
+	"strconv"
+	gosync "sync"
 	"time"
 )
 
@@ -91,6 +94,7 @@ func main() {
 	defaultDir := path.Join(user.HomeDir, DefaultDir)
 
 	dir := flag.String("d", defaultDir, "The directory your h0tb0x stuff lives in")
+	extHostStr := flag.String("h", "", "The external host (default chosen by nat-pmp)")
 	flag.Parse()
 	if *dir == "" {
 		fatal("Directory option is required", nil)
@@ -178,7 +182,28 @@ func main() {
 		}
 	}
 
-	extHost, extPort := GetExternalAddr(config.LinkPort)
+	var extHost net.IP
+	var extPort uint16
+	if *extHostStr == "" {
+		extHost, extPort = GetExternalAddr(config.LinkPort)
+	} else {
+		parts := strings.Split(*extHostStr, ":")
+		if len(parts) != 2 {
+			panic(fmt.Errorf("Unable to parse host string, no ':' seperator", *extHostStr))
+		}
+		extHost = net.ParseIP(parts[0]) 
+		if extHost == nil {
+			panic(fmt.Errorf("Host part of external host is invalid: %s", parts[0]))
+		}
+		extPortInt, err := strconv.Atoi(parts[1])
+		if extPortInt < 1 || extPortInt > 65535 {
+			panic(fmt.Errorf("External port out of range"))
+		}
+		extPort = uint16(extPortInt)
+		if err != nil || extPort == 0 {
+			panic(fmt.Errorf("Port part of external host is invalid: %s", err))
+		}
+	}
 
 	base := &base.Base{
 		Log:   log.New(os.Stderr, "h0tb0x", log.LstdFlags),
@@ -193,17 +218,35 @@ func main() {
 	data := data.NewDataMgr(dataDir, meta)
 	api := api.NewApiMgr(extHost.String(), extPort, config.ApiPort, data)
 
-	go func() {
-		tick := time.Tick(15 * time.Minute)
-		for _ = range tick {
-			api.SetExt(GetExternalAddr(config.LinkPort))
-		}
-	}()
+	stopTime := make(chan bool)
+	var stopWait gosync.WaitGroup
+
+	if *extHostStr == "" {
+		stopWait.Add(1)
+		go func() {
+			for {
+				tchan := time.After(15 * time.Minute)
+        			select {
+        				case <- stopTime:
+						stopWait.Done()
+                				return
+        				case <-tchan:
+					break
+                		}
+				api.SetExt(GetExternalAddr(config.LinkPort))
+			}
+		}()
+	}
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, os.Kill)
 	api.Run()
 	<-ch
 	fmt.Fprintf(os.Stderr, "\n")
+	api.Log.Printf("Shutting down")
+	api.Log.Printf("Stopping timer")
+	close(stopTime)
+	stopWait.Wait()
+	api.Log.Printf("Timer stopped")
 	api.Stop()
 }

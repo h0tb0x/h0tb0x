@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type FriendStatus int
@@ -25,6 +26,10 @@ const (
 const (
 	ServiceNotify = 1
 	ServiceData   = 2
+)
+
+const (
+	DialTimeout = 3 * time.Second
 )
 
 type didWrite struct {
@@ -168,7 +173,7 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 	fi, ok := this.friendsFp[id.Fingerprint().String()]
 	if !ok {
 		this.cmut.RUnlock()
-		this.respondError(response, http.StatusForbidden, "Unknown friend")
+		this.respondError(response, http.StatusForbidden, fmt.Sprintf("Unknown friend: %s", id.Fingerprint().String()))
 		return
 	}
 	this.wait.Add(1)
@@ -185,7 +190,7 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 }
 
 // Generate an outbound TLS connection so we can hand verify the remote side
-func (this *LinkMgr) safeDial(net string, host string) (net.Conn, error) {
+func (this *LinkMgr) safeDial(netStr string, host string) (net.Conn, error) {
 	var id int
 	_, err := fmt.Sscanf(host, "id_%d:80", &id)
 	if err != nil {
@@ -200,7 +205,10 @@ func (this *LinkMgr) safeDial(net string, host string) (net.Conn, error) {
 	}
 	this.cmut.RUnlock()
 	this.Log.Printf("Dialing(%s:%d)", fi.host, fi.port)
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", fi.host, fi.port), this.clientTls)
+	var dialer net.Dialer
+	dialer.Deadline = time.Now().Add(DialTimeout)
+	tcpconn, err := dialer.Dial(netStr, fmt.Sprintf("%s:%d", fi.host, fi.port))
+
 	if err != nil {
 		this.cmut.Lock()
 		this.UpdateIsGd(fi)
@@ -208,6 +216,7 @@ func (this *LinkMgr) safeDial(net string, host string) (net.Conn, error) {
 		return nil, err
 	}
 
+	conn := tls.Client(tcpconn, this.clientTls)
 	err = conn.Handshake()
 	if err != nil {
 		return nil, err
@@ -387,14 +396,19 @@ func (this *LinkMgr) Send(service int, id int, req io.Reader, resp io.Writer) (e
 	url := fmt.Sprintf("http://id_%d:80/h0tb0x/%d", id, service)
 	httpResp, err := this.client.Post(url, "application/binary", req)
 	if err != nil {
+		if httpResp != nil {
+			httpResp.Body.Close()
+		}
 		return
 	}
 	if httpResp.StatusCode != http.StatusOK {
 		err = fmt.Errorf("RPC had non 200 http return code: %d", httpResp.StatusCode)
+		httpResp.Body.Close()
 		return
 	}
 	if httpResp.Header.Get("Content-Type") != "application/binary" {
 		err = fmt.Errorf("Content type mismatch")
+		httpResp.Body.Close()
 		return
 	}
 	_, err = io.Copy(resp, httpResp.Body)
