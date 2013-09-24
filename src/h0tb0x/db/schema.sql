@@ -11,9 +11,16 @@ CREATE TABLE IF NOT EXISTS Object(
 	PRIMARY KEY(topic, type, author, key)
 );
 
+CREATE TABLE IF NOT EXISTS Profile(
+	id INTEGER PRIMARY KEY NOT NULL,
+	fingerprint BLOB NOT NULL,
+	isgdid INT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS Friend(
 	id INTEGER PRIMARY KEY NOT NULL,
 	fingerprint BLOB NOT NULL,
+	isgdid INT NOT NULL DEFAULT(0),
 	host TEXT NOT NULL,
 	port INT NOT NULL
 );
@@ -56,6 +63,7 @@ CREATE TABLE IF NOT EXISTS Advert(
 --	PRIMARY KEY(dest_id, source_id)
 --);
 
+CREATE UNIQUE INDEX IF NOT EXISTS IDX_Profile_fingerprint ON Profile (fingerprint);
 CREATE UNIQUE INDEX IF NOT EXISTS IDX_Friend_fingerprint ON Friend (fingerprint);
 CREATE UNIQUE INDEX IF NOT EXISTS IDX_Object_seqno ON Object (seqno);
 CREATE UNIQUE INDEX IF NOT EXISTS IDX_Blob ON Blob (key);

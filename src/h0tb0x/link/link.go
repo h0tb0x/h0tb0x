@@ -3,9 +3,11 @@ package link
 import (
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"h0tb0x/base"
 	"h0tb0x/crypto"
 	"h0tb0x/transfer"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -38,8 +40,13 @@ func (this *didWrite) Write(p []byte) (n int, err error) {
 type friendInfo struct {
 	id          int
 	fingerprint *crypto.Digest
+	isgdid	    int
 	host        string
 	port        uint16
+}
+
+type isGdJson struct {
+	Url	string
 }
 
 // The LinkMgr is the primary interface for the Link Layer
@@ -55,6 +62,50 @@ type LinkMgr struct {
 	wait      sync.WaitGroup
 	listeners []func(id int, fingerprint *crypto.Digest, what FriendStatus)
 	handlers  map[int]func(int, *crypto.Digest, io.Reader, io.Writer) (err error)
+}
+
+func (this *LinkMgr) UpdateIsGd(fi *friendInfo) {
+	theHash := crypto.HashOf(fi.fingerprint, fi.isgdid)
+	this.Log.Printf("Trying to update isGd for %s, id = %d", fi.fingerprint.String(), fi.isgdid)
+	isgdurl := "http://is.gd/forward.php?format=json&shorturl=" + theHash.String()[0:24]
+	this.Log.Printf("Doing get of: %s", isgdurl)
+	resp, err := http.Get(isgdurl)
+	this.Log.Printf("Get has returned")
+	if err != nil {
+		this.Log.Printf("Failed to do get of: %s", "http://is.gd/forward.php?format=json&shorturl=" + theHash.String())
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		this.Log.Printf("Status not OK")
+		return
+	}
+	dec := json.NewDecoder(resp.Body)
+	var gd isGdJson
+	err = dec.Decode(&gd)
+	if err != nil {
+		this.Log.Printf("Unable to decode")
+		return
+	}
+	url, err := url.Parse(gd.Url)
+	if err != nil {
+		this.Log.Printf("Unable to parse as URL: '%s'", gd.Url)
+		return
+	}
+	var ip1, ip2, ip3, ip4 int
+	var port int
+	_, err = fmt.Sscanf(url.Host, "%d.%d.%d.%d:%d", &ip1, &ip2, &ip3, &ip3, &port)
+	if err != nil {
+		this.Log.Printf("Unable to parse as host: '%s': %v", url.Host, err)
+		return
+	}
+	host := fmt.Sprintf("%d.%d.%d.%d", ip1, ip2, ip3, ip4)
+	this.Log.Printf("Updating %s to %s:%d", fi.fingerprint.String(), host, port) 
+	fi.host = host
+	fi.port = uint16(port)
+	fi.isgdid++
+	this.Db.Exec("UPDATE Friend SET host = ?, port = ?, isgdid = ? WHERE id = ?",
+		host, port, fi.isgdid, fi.id)
+	
 }
 
 func (this *LinkMgr) respondError(response http.ResponseWriter, status int, err string) {
@@ -151,6 +202,9 @@ func (this *LinkMgr) safeDial(net string, host string) (net.Conn, error) {
 	this.Log.Printf("Dialing(%s:%d)", fi.host, fi.port)
 	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", fi.host, fi.port), this.clientTls)
 	if err != nil {
+		this.cmut.Lock()
+		this.UpdateIsGd(fi)
+		this.cmut.Unlock()
 		return nil, err
 	}
 
@@ -237,19 +291,26 @@ func (this *LinkMgr) Run() error {
 	}
 	this.listener = tls.NewListener(conn, this.server.TLSConfig)
 
-	rows := this.Db.MultiQuery("SELECT id, fingerprint, host, port FROM Friend")
+	rows := this.Db.MultiQuery("SELECT id, fingerprint, isgdid, host, port FROM Friend")
 	for rows.Next() {
 		var id int
+		var isgdid int
 		var fp []byte
 		var host string
 		var port uint16
-		this.Db.Scan(rows, &id, &fp, &host, &port)
+		this.Db.Scan(rows, &id, &fp, &isgdid, &host, &port)
 		var fingerprint *crypto.Digest
 		err := transfer.DecodeBytes(fp, &fingerprint)
 		if err != nil {
 			panic(err)
 		}
-		fi := &friendInfo{id: id, fingerprint: fingerprint, host: host, port: port}
+		fi := &friendInfo{
+			id: id, 
+			fingerprint: fingerprint, 
+			isgdid: isgdid,
+			host: host, 
+			port: port,
+		}
 		this.friendsFp[fingerprint.String()] = fi
 		this.friendsId[id] = fi
 	}
