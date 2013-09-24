@@ -1,0 +1,8 @@
+<ol class="breadcrumb">
+	<li ng-repeat="item in crumbs.get()" ng-class="{active: {{$last}}}">
+		<ng-switch on="$last">
+			<span ng-switch-when="true">{{item.name}}</span>
+			<span ng-switch-default><a ng-href="{{item.path}}">{{item.name}}</a></span>
+		</ng-switch>
+	</li>
+</ol>

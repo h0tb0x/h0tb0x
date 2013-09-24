@@ -1,0 +1,14 @@
+{
+	"name": "h0tb0x",
+	"description": "h0tb0x reference webapp",
+	"version": "1.0.0",
+	"repository": {
+		"type": "git",
+		"url": "fried.h0tb0x.net:h0tb0x.git"
+	},
+	"devDependencies": {
+		"bower": "~0.9",
+		"karma": "~0.10",
+		"karma-ng-scenario": "~0.1"
+	}
+}

@@ -1,0 +1,6 @@
+{
+	"name": "h0tb0x",
+	"dependencies": {
+		"angular-mocks": "~1.0.8"
+	}
+}

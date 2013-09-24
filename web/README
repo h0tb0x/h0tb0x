@@ -1,0 +1,54 @@
+README
+
+This is a reference implementation of the h0tb0x management web app.
+
+Features:
+
+* Display 'self' to initiate friending process.
+* Display friends
+* Add/Remove friends
+* Display collections
+* Add/Remove collections
+* Add/Remove writers to a collection
+* Add/Remove data in a collection
+* Publish/Subscribe to a collection from a friend
+
+Development:
+
+To get started, we'll need to get dependencies installed. 
+We'll use npm (node.js Package Manager) along with bower to manage dependencies.
+
+0. On Ubuntu, node is too old for some npm packages. We need to build it.
+
+	$ sudo apt-get install python-software-properties
+	$ sudo add-apt-repository ppa:chris-lea/node.js
+	$ sudo apt-get update
+	$ sudo apt-get install nodejs
+
+1. First install npm.
+
+	Mac OS X:
+
+	$ brew install npm
+
+	Ubuntu:
+
+	# apt-get install npm
+
+2. Install dependencies.
+
+	$ make
+
+3. Make sure the h0tb0x server is up and running:
+
+	$ h0tb0x
+
+4. Run the end to end (e2e) tests.
+
+	$ make e2e-test
+
+5. Run unit tests.
+   This will continue to run in the background, 
+   automatically re-runs when a file is updated.
+
+	$ make unit-test

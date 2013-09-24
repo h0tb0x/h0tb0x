@@ -1,0 +1,28 @@
+Specifications:
+
+RFC 3977
+Network News Transfer Protocol (NNTP)
+http://tools.ietf.org/html/rfc3977
+
+BEP 3
+The BitTorrent Protocol Specification
+http://bittorrent.org/beps/bep_0003.html
+
+
+Of Interest:
+
+Tonika: social routing with organic security
+http://pdos.csail.mit.edu/~petar/5ttt.org/
+
+Kademlia (DHT)
+http://en.wikipedia.org/wiki/Kademlia
+
+
+Libraries:
+
+libtorrent (C++)
+http://www.rasterbar.com/products/libtorrent/
+
+libwww (C) - NNTP Client
+http://www.w3.org/Library/
+

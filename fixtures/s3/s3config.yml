@@ -1,0 +1,3 @@
+aws_access_key_id: AKIAITK3WQM7ZZJV5EFQ
+aws_secret_access_key: 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
+ssl_cert_dir: ~/.s3config/certs

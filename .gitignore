@@ -1,0 +1,10 @@
+/bin
+/pkg
+/src/code.google.com
+/src/github.com
+*.pyc
+*.DS_Store
+/h0tb0x
+/doc/*.svg
+/doc/*.html
+/src/h0tb0x/db/schema_sql.go

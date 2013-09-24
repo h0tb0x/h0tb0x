@@ -1,0 +1,22 @@
+<div class="panel panel-default">
+	<div class="panel-heading">Collections</div>
+	<div class="panel-body">
+		<button type="button" class="btn btn-default">Add Collection</button>
+	</div>
+	<table class="table table-bordered">
+		<thead>
+			<tr>
+				<th>Name</th>
+				<th>ID</th>
+				<th>Owner</th>
+			</tr>
+		</thead>
+		<tbody>
+			<tr ng-repeat="collection in collections">
+				<td><a href="#/collections/{{collection.id}}">{{collection.name || "Anonymous"}}</a></td>
+				<td>{{collection.id}}</td>
+				<td>{{collection.owner}}</td>
+			</tr>
+		</tbody>
+	</table>
+</div>
