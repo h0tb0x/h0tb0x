@@ -351,4 +351,5 @@ func (this *LinkMgr) Send(service int, id int, req io.Reader, resp io.Writer) (e
 		return
 	}
 	_, err = io.Copy(resp, httpResp.Body)
+	return
 }
