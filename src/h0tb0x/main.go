@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path"
+	gosync "sync"
 	"time"
 )
 
@@ -192,10 +193,20 @@ func main() {
 	meta := meta.NewMetaMgr(sync)
 	data := data.NewDataMgr(dataDir, meta)
 	api := api.NewApiMgr(extHost.String(), extPort, config.ApiPort, data)
+	stopTime := make(chan bool)
+	var stopWait gosync.WaitGroup
+	stopWait.Add(1)
 
 	go func() {
-		tick := time.Tick(15 * time.Minute)
-		for _ = range tick {
+		for {
+			tchan := time.After(15 * time.Minute)
+        		select {
+        			case <- stopTime:
+					stopWait.Done()
+                			return
+        			case <-tchan:
+					break
+                	}
 			api.SetExt(GetExternalAddr(config.LinkPort))
 		}
 	}()
@@ -205,5 +216,10 @@ func main() {
 	api.Run()
 	<-ch
 	fmt.Fprintf(os.Stderr, "\n")
+	api.Log.Printf("Shutting down")
+	api.Log.Printf("Stopping timer")
+	close(stopTime)
+	stopWait.Wait()
+	api.Log.Printf("Timer stopped")
 	api.Stop()
 }

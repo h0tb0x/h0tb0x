@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type FriendStatus int
@@ -23,6 +24,10 @@ const (
 const (
 	ServiceNotify = 1
 	ServiceData   = 2
+)
+
+const (
+	DialTimeout = 3 * time.Second
 )
 
 type didWrite struct {
@@ -134,7 +139,7 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 }
 
 // Generate an outbound TLS connection so we can hand verify the remote side
-func (this *LinkMgr) safeDial(net string, host string) (net.Conn, error) {
+func (this *LinkMgr) safeDial(netStr string, host string) (net.Conn, error) {
 	var id int
 	_, err := fmt.Sscanf(host, "id_%d:80", &id)
 	if err != nil {
@@ -149,11 +154,15 @@ func (this *LinkMgr) safeDial(net string, host string) (net.Conn, error) {
 	}
 	this.cmut.RUnlock()
 	this.Log.Printf("Dialing(%s:%d)", fi.host, fi.port)
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", fi.host, fi.port), this.clientTls)
+	var dialer net.Dialer
+	dialer.Deadline = time.Now().Add(DialTimeout)
+	tcpconn, err := dialer.Dial(netStr, fmt.Sprintf("%s:%d", fi.host, fi.port))
+
 	if err != nil {
 		return nil, err
 	}
 
+	conn := tls.Client(tcpconn, this.clientTls)
 	err = conn.Handshake()
 	if err != nil {
 		return nil, err
