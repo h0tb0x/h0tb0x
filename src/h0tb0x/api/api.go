@@ -23,6 +23,7 @@ type ApiMgr struct {
 	wait    gosync.WaitGroup
 	port    uint16
 	conn    net.Listener
+	mutex   gosync.Mutex
 }
 
 type SelfJson struct {
@@ -161,15 +162,24 @@ func (this *ApiMgr) decodeJsonBody(w http.ResponseWriter, req *http.Request, out
 	return true
 }
 
+func (this *ApiMgr) SetExt(host net.IP, port uint16) {
+	this.mutex.Lock()
+	this.ExtHost = host.String()
+	this.ExtPort = port
+	this.mutex.Unlock()
+}
+
 func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
 	myFp := this.Ident.Public().Fingerprint()
 	myCid := crypto.HashOf(myFp, myFp).String()
+	this.mutex.Lock()
 	json := SelfJson{
 		Id:      myFp.String(),
 		Host:    this.ExtHost,
 		Port:    this.ExtPort,
 		SelfCid: myCid,
 	}
+	this.mutex.Unlock()
 	this.sendJson(w, json)
 }
 

@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path"
+	"time"
 )
 
 const (
@@ -191,6 +192,14 @@ func main() {
 	meta := meta.NewMetaMgr(sync)
 	data := data.NewDataMgr(dataDir, meta)
 	api := api.NewApiMgr(extHost.String(), extPort, config.ApiPort, data)
+
+	go func() {
+		tick := time.Tick(15 * time.Minute)
+		for _ = range tick {
+			api.SetExt(GetExternalAddr(config.LinkPort))
+		}
+	}()
+
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, os.Kill)
 	api.Run()
