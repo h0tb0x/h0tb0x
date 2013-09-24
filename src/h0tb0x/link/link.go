@@ -168,7 +168,7 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 	fi, ok := this.friendsFp[id.Fingerprint().String()]
 	if !ok {
 		this.cmut.RUnlock()
-		this.respondError(response, http.StatusForbidden, "Unknown friend")
+		this.respondError(response, http.StatusForbidden, fmt.Sprintf("Unknown friend: %s", id.Fingerprint().String()))
 		return
 	}
 	this.wait.Add(1)
