@@ -174,6 +174,7 @@ func (this *ApiMgr) SetExt(host net.IP, port uint16) {
 	this.extHost = host.String()
 	this.extPort = port
 	this.mutex.Unlock()
+	this.Log.Printf("Publishing Rendezvous %s:%d to %s", this.extHost, this.extPort, this.rendezvous)
 	rendezvous.Publish(this.rendezvous, this.Ident, this.extHost, this.extPort)
 }
 

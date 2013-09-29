@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -169,7 +168,7 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if exists {
-		this.database.Exec("UPDATE Rendezvous SET version = ?, rendezvous = ?, host = ?, port = ?, signature = ?",
+		this.database.Exec("UPDATE Rendezvous SET version = ?, host = ?, port = ?, signature = ?",
 			record.Version, record.Host, record.Port, record.Signature)
 	} else {
 		this.database.Exec(`INSERT INTO Rendezvous 
@@ -243,9 +242,8 @@ func (this *RendezvousMgr) Stop() {
 	this.wait.Wait()
 }
 
-func Serve(port int, dir string) {
-	fp := path.Join(dir, dbFilename)
-	rendezvous := NewRendezvousMgr(port, fp)
+func Serve(port int, file string) {
+	rendezvous := NewRendezvousMgr(port, file)
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, os.Kill)

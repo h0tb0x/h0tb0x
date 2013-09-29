@@ -15,6 +15,7 @@ import (
 	"h0tb0x/meta"
 	"h0tb0x/sync"
 	"h0tb0x/transfer"
+	"h0tb0x/rendezvous"
 	"log"
 	"net"
 	"os"
@@ -35,6 +36,7 @@ const (
 	DefaultDir        = ".h0tb0x"
 	ConfigFilename    = "config.json"
 	DbFilename        = "h0tb0x.db"
+	RendezvousDb      = "rendezvous.db"
 	IdFilename        = "identity"
 )
 
@@ -111,8 +113,7 @@ func newH0tb0x(dir string) {
 		fmt.Println("Passwords don't match, go away")
 		return
 	}
-	fmt.Println("Generating default config, you may want to check %s/%s to make sure values are correct",
-		dir, cfgFilename)
+	fmt.Printf("Generating default config, you may want to check %s to make sure values are correct\n", cfgFilename)
 
 	config := &Config{
 		ApiPort:    DefaultApiPort,
@@ -154,10 +155,16 @@ func main() {
 
 	defaultDir := path.Join(user.HomeDir, DefaultDir)
 
+	rendezvousPort := flag.Int("r", 0, "Set the rendezvous port and run a rendezvous server instead of h0tb0x")
 	dir := flag.String("d", defaultDir, "The directory your h0tb0x stuff lives in")
 	flag.Parse()
 	if *dir == "" {
 		fatal("Directory option is required", nil)
+	}
+	if *rendezvousPort != 0 {
+		rdbFilename := path.Join(*dir, RendezvousDb)
+		rendezvous.Serve(*rendezvousPort, rdbFilename)
+		return
 	}
 
 	cfgFilename := path.Join(*dir, ConfigFilename)
@@ -198,16 +205,22 @@ func main() {
 		}
 		thedb = db.NewDatabase(dbFilename)
 	} else {
-		fmt.Printf("h0tb0x directory %s doesn't exist", *dir)
+		fmt.Printf("h0tb0x directory %s doesn't exist\n", *dir)
 		newH0tb0x(*dir)
-		fmt.Printf("Config created, now you can rerun h0tb0x!")
+		fmt.Printf("Config created, now you can rerun h0tb0x!\n")
 		os.Exit(1)
 	}
+	fmt.Printf("Running with config: \n")
+	fmt.Printf("  ApiPort: %d\n", config.ApiPort)
+	fmt.Printf("  LinkPort: %d\n", config.LinkPort)
+	fmt.Printf("  Rendezvous: %s\n", config.Rendezvous)
+	fmt.Printf("  ExtHost: %s\n", config.ExtHost)
+	fmt.Printf("  ExtPort: %d\n", config.ExtPort)
 
 	var extHost net.IP
 	var extPort uint16
 	if config.ExtHost == "" || config.ExtPort == 0 {
-		fmt.Printf("Using nat-pmp")
+		fmt.Printf("Using nat-pmp\n")
 		extHost, extPort = GetExternalAddr(config.LinkPort)
 	} else {
 		extHost = net.ParseIP(config.ExtHost)
