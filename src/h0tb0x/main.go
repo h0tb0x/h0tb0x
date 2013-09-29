@@ -32,7 +32,7 @@ const (
 	DefaultLinkPort   = 31337 // Should allow 0 to be automatic
 	DefaultExtHost    = ""    // Automatic
 	DefaultExtPort    = 0     // Automatic
-	DefaultRendezvous = "h0tb0x.net:2134"
+	DefaultRendezvous = "rs.h0tb0x.net:2134"
 	DefaultDir        = ".h0tb0x"
 	ConfigFilename    = "config.json"
 	DbFilename        = "h0tb0x.db"
