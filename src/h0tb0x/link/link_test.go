@@ -83,3 +83,7 @@ func TestLink(t *testing.T) {
 	bob.Stop()
 	rm.Stop()
 }
+
+func TestClose(t *testing.T) {
+
+}

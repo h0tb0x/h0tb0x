@@ -1,3 +1,6 @@
+/app/app.js*
 /app/lib
 /test/lib
 /node_modules
+/d.ts
+/tscommand.tmp.txt

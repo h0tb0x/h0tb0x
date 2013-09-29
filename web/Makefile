@@ -1,4 +1,4 @@
-all: install
+all: install build
 
 install:
 	npm install
@@ -12,3 +12,9 @@ unit-test:
 
 e2e-test:
 	node_modules/.bin/karma start etc/karma-e2e.conf.js
+
+build:
+	node_modules/.bin/grunt 
+
+watch:
+	node_modules/.bin/grunt watch

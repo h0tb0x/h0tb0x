@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -32,7 +33,7 @@ type SelfJson struct {
 	Id         string `json:"id"`
 	Rendezvous string `json:"rendezvous"`
 	PublicKey  string `json:"publicKey"`
-	BizCard    string `json:"bizCard"`
+	Passport   string `json:"passport"`
 	Host       string `json:"host"`
 	Port       uint16 `json:"port"`
 	SelfCid    string `json:"selfCid"`
@@ -97,6 +98,7 @@ func NewApiMgr(rendezvous string, apiPort uint16, data *data.DataMgr) *ApiMgr {
 	router.HandleFunc("/api/collections/{cid}/data", api.listData).Methods("GET")
 	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.getData).Methods("GET")
 	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.putData).Methods("PUT")
+	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.postData).Methods("POST")
 	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.deleteData).Methods("DELETE")
 
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("web/app")))
@@ -177,13 +179,14 @@ func (this *ApiMgr) SetExt(host net.IP, port uint16) {
 func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
 	myFp := this.Ident.Public().Fingerprint()
 	myCid := crypto.HashOf(myFp, myFp).String()
+
 	this.mutex.Lock()
-	bizCard := transfer.AsString(myFp, this.rendezvous)
+	passport := transfer.AsString(myFp, this.rendezvous)
 	json := SelfJson{
 		Id:         myFp.String(),
 		Rendezvous: this.rendezvous,
 		PublicKey:  transfer.AsString(this.Ident.Public()),
-		BizCard:    bizCard,
+		Passport:   passport,
 		Host:       this.extHost,
 		Port:       this.extPort,
 		SelfCid:    myCid,
@@ -203,7 +206,7 @@ func (this *ApiMgr) populateFriend(json *FriendJson, myFp, fp *crypto.Digest, ke
 	if json.Host == "$" {
 		json.Host = ""
 	}
-	json.BizCard = transfer.AsString(fp, json.Rendezvous)
+	json.Passport = transfer.AsString(fp, json.Rendezvous)
 	json.SelfCid = crypto.HashOf(fp, fp).String()
 	json.SendCid = crypto.HashOf(myFp, fp).String()
 	json.RecvCid = crypto.HashOf(fp, myFp).String()
@@ -269,11 +272,11 @@ func (this *ApiMgr) putFriend(w http.ResponseWriter, req *http.Request) {
 }
 
 func (this *ApiMgr) postFriends(w http.ResponseWriter, req *http.Request) {
-	var json FriendJson
-	// Get Json
-	if !this.decodeJsonBody(w, req, &json) {
-		return
-	}
+	// Grab whole post as a string
+	var buf bytes.Buffer
+	io.copy(&buf, req.Body())
+	json = &SelfJson{ Passport: string(buf.Bytes()) }
+
 	// Apply it
 	this.doPutFriend(w, req, &json.SelfJson)
 }
@@ -282,9 +285,9 @@ func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *
 	var fp *crypto.Digest
 	var rendezvous string
 
-	err := transfer.DecodeString(json.BizCard, &fp, &rendezvous)
+	err := transfer.DecodeString(json.Passport, &fp, &rendezvous)
 	if err == nil {
-		// If BizCard decodes, validate consistency
+		// If Passport decodes, validate consistency
 		if json.Id != "" && json.Id != fp.String() {
 			this.sendError(w, http.StatusBadRequest, "Friend ID's are inconsistent")
 			return
@@ -374,7 +377,11 @@ func (this *ApiMgr) getCollection(w http.ResponseWriter, req *http.Request) {
 
 func (this *ApiMgr) addCollection(w http.ResponseWriter, req *http.Request) {
 	cid := this.CreateNewCollection(this.Ident)
-	this.sendJson(w, cid)
+	json := &CollectionJson{
+		Id:    cid,
+		Owner: this.GetOwner(cid).Fingerprint().String(),
+	}
+	this.sendJson(w, json)
 }
 
 func (this *ApiMgr) getWriters(w http.ResponseWriter, req *http.Request) {
@@ -509,6 +516,57 @@ func (this *ApiMgr) putData(w http.ResponseWriter, req *http.Request) {
 	err := this.PutData(cid, key, this.Ident, req.Body)
 	if err != nil {
 		this.sendError(w, http.StatusBadRequest, err.Error())
+	}
+}
+
+func (this *ApiMgr) postData(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	cid := vars["cid"]
+	owner := this.GetOwner(cid)
+	if owner == nil {
+		this.sendError(w, http.StatusNotFound, "Collection invalid")
+		return
+	}
+	writer := this.GetWriter(cid, this.Ident.Public().Fingerprint().String())
+	if writer == nil {
+		this.sendError(w, http.StatusUnauthorized, "You are not a writer for this collection")
+		return
+	}
+	// key := vars["key"]
+
+	// err := this.PutData(cid, key, this.Ident, req.Body)
+	// if err != nil {
+	// 	this.sendError(w, http.StatusBadRequest, err.Error())
+	// }
+	err := req.ParseMultipartForm(10 * 1024 * 1024)
+	if err != nil {
+		this.sendError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if len(req.MultipartForm.File) != 1 {
+		this.sendError(w, http.StatusBadRequest, "Missing single file for upload")
+		return
+	}
+
+	for _, fh := range req.MultipartForm.File {
+		if len(fh) != 1 {
+			this.sendError(w, http.StatusBadRequest, "Missing single file for upload")
+			return
+		}
+
+		file, err := fh[0].Open()
+		if err != nil {
+			this.sendError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		key := vars["key"]
+		err = this.PutData(cid, key, this.Ident, file)
+		if err != nil {
+			this.sendError(w, http.StatusBadRequest, err.Error())
+		}
+		break
 	}
 }
 

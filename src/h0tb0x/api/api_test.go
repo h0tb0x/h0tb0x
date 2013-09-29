@@ -98,13 +98,13 @@ func TestApi(t *testing.T) {
 	var selfAlice SelfJson
 	SafeDecode(resp.Body, &selfAlice)
 	SafePut(client, "http://localhost:2002/api/friends/"+selfAlice.Id,
-		&FriendJson{SelfJson: SelfJson{BizCard: selfAlice.BizCard}})
+		&FriendJson{SelfJson: SelfJson{Passport: selfAlice.Passport}})
 
 	resp = SafeGet(client, "http://localhost:2002/api/self")
 	var selfBob SelfJson
 	SafeDecode(resp.Body, &selfBob)
 	SafePut(client, "http://localhost:2001/api/friends/"+selfBob.Id,
-		&FriendJson{SelfJson: SelfJson{BizCard: selfBob.BizCard}})
+		&FriendJson{SelfJson: SelfJson{Passport: selfBob.Passport}})
 
 	time.Sleep(1 * time.Second)
 

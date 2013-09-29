@@ -365,8 +365,8 @@ func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, rendezvous string) {
 	this.friendsId[id] = fi
 	if !ok {
 		// If it was added, signal upper layer
-		for _, f := range this.listeners {
-			f(id, fp, FriendAdded)
+		for _, callback := range this.listeners {
+			callback(id, fp, FriendAdded)
 		}
 	}
 }

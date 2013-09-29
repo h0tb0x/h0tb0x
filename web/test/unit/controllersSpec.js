@@ -10,32 +10,35 @@ describe('H0tb0x controllers', function() {
 		});
 	});
 
-	beforeEach(module('App.Controllers'));
+	beforeEach(module('App'));
 
 	describe('FriendListCtrl', function() {
 		var scope, ctrl, $httpBackend;
-		var data = [
+		var friends = [
 			{ id: '1' },
 			{ id: '2' }
 		];
+		var self = {};
 
 		beforeEach(inject(function(_$httpBackend_, $rootScope, $controller) {
 			$httpBackend = _$httpBackend_;
-			$httpBackend.expectGET('/api/friends').respond(data);
+			$httpBackend.expectGET('/api/self').respond(self);
+			$httpBackend.expectGET('/api/friends').respond(friends);
 			scope = $rootScope.$new();
 			ctrl = $controller('FriendListCtrl', {$scope: scope});
 		}));
 
 		it('should have 2 items from xhr', function() {
-			expect(scope.data).toEqual([]);
+			expect(scope.friends).toEqual([]);
 			$httpBackend.flush();
 
-			expect(scope.data).toEqualData(data);
+			expect(scope.friends).toEqualData(friends);
 		});
 	});
 
 	describe('CollectionListCtrl', function() {
 		var scope, ctrl, $httpBackend;
+		var self = {};
 		var data = [
 			{ id: '1' },
 			{ id: '2' }
@@ -43,6 +46,7 @@ describe('H0tb0x controllers', function() {
 
 		beforeEach(inject(function(_$httpBackend_, $rootScope, $controller) {
 			$httpBackend = _$httpBackend_;
+			$httpBackend.expectGET('/api/self').respond(self);
 			$httpBackend.expectGET('/api/collections').respond(data);
 			scope = $rootScope.$new();
 			ctrl = $controller('CollectionListCtrl', {$scope: scope});
