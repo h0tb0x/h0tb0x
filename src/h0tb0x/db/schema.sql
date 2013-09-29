@@ -14,8 +14,10 @@ CREATE TABLE IF NOT EXISTS Object(
 CREATE TABLE IF NOT EXISTS Friend(
 	id INTEGER PRIMARY KEY NOT NULL,
 	fingerprint BLOB NOT NULL,
-	host TEXT NOT NULL,
-	port INT NOT NULL
+	rendezvous TEXT NOT NULL,
+	public_key BLOB NULL,
+	host TEXT NOT NULL,  -- Filled with '$' when 'empty' to deal with borked DB handling in go
+	port INTEGER NOT NULL DEFAULT (0)
 );
 
 CREATE TABLE IF NOT EXISTS TopicFriend(
@@ -42,6 +44,20 @@ CREATE TABLE IF NOT EXISTS Advert(
 	PRIMARY KEY(key, friend_id, topic)
 );
 
+-- Todo: Move to a seperate schema
+-- Also, I should probably make this information private to friends via public key crypto
+CREATE TABLE IF NOT EXISTS Rendezvous(
+	-- Not in sig
+	fingerprint TEXT NOT NULL PRIMARY KEY,
+	public_key TEXT NOT NULL,
+	-- In sig
+	version int NOT NULL,
+	host TEXT NOT NULL,
+	port int NOT NULL,
+	-- The sig
+	signature TEXT NOT NULL
+);
+	
 -- Most of the data for an advert is for *inbound* adverts
 -- That is, what I last heard from each friend regarding the destination
 -- But I also keep my local data in the same table, with -1 for source

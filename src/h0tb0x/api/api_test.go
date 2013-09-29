@@ -8,9 +8,12 @@ import (
 	"h0tb0x/data"
 	"h0tb0x/link"
 	"h0tb0x/meta"
+	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 )
@@ -21,14 +24,10 @@ func NewTestNode(name string, linkPort uint16, apiPort uint16) *ApiMgr {
 	sync := sync.NewSyncMgr(link)
 	meta := meta.NewMetaMgr(sync)
 	data := data.NewDataMgr("/tmp/data/"+name, meta)
-	api := NewApiMgr("localhost", linkPort, apiPort, data)
+	api := NewApiMgr("localhost:3030", apiPort, data)
+	api.SetExt(net.ParseIP("127.0.0.1"), linkPort)
 	api.Run()
 	return api
-}
-
-func CreateLink(lhs, rhs *ApiMgr) {
-	lhs.AddUpdateFriend(rhs.Ident.Fingerprint(), "localhost", rhs.Port)
-	rhs.AddUpdateFriend(lhs.Ident.Fingerprint(), "localhost", lhs.Port)
 }
 
 func SafeGet(client *http.Client, url string) *http.Response {
@@ -75,6 +74,7 @@ func SafePut(client *http.Client, url string, data interface{}) *http.Response {
 	}
 	return resp
 }
+
 func SafeDecode(in io.Reader, obj interface{}) {
 	err := json.NewDecoder(in).Decode(obj)
 	if err != nil {
@@ -83,6 +83,10 @@ func SafeDecode(in io.Reader, obj interface{}) {
 }
 
 func TestApi(t *testing.T) {
+	os.Remove("/tmp/rtest.db")
+	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
+	rm.Run()
+
 	alice := NewTestNode("Alice", 10001, 2001)
 	bob := NewTestNode("Bob", 10002, 2002)
 
@@ -94,19 +98,20 @@ func TestApi(t *testing.T) {
 	var selfAlice SelfJson
 	SafeDecode(resp.Body, &selfAlice)
 	SafePut(client, "http://localhost:2002/api/friends/"+selfAlice.Id,
-		&FriendJson{SelfJson: SelfJson{Host: selfAlice.Host, Port: selfAlice.Port}})
+		&FriendJson{SelfJson: SelfJson{Passport: selfAlice.Passport}})
 
 	resp = SafeGet(client, "http://localhost:2002/api/self")
 	var selfBob SelfJson
 	SafeDecode(resp.Body, &selfBob)
 	SafePut(client, "http://localhost:2001/api/friends/"+selfBob.Id,
-		&FriendJson{SelfJson: SelfJson{Host: selfBob.Host, Port: selfBob.Port}})
+		&FriendJson{SelfJson: SelfJson{Passport: selfBob.Passport}})
 
 	time.Sleep(1 * time.Second)
 
 	resp = SafePost(client, "http://localhost:2001/api/collections", "")
-	var cid string
-	SafeDecode(resp.Body, &cid)
+	var cj *CollectionJson 
+	SafeDecode(resp.Body, &cj)
+	cid := cj.Id
 	alice.Log.Printf("Made a new collection: %s", cid)
 	resp = SafePost(client, "http://localhost:2001/api/invites",
 		&InviteJson{Cid: cid, Friend: selfBob.Id})
@@ -117,7 +122,7 @@ func TestApi(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
-	var keys []string
+	var keys []CollectionItemJson
 	resp = SafeGet(client, "http://localhost:2002/api/collections/"+cid+"/data")
 	SafeDecode(resp.Body, &keys)
 	bob.Log.Printf("Got keys: %v", keys)
@@ -133,4 +138,5 @@ func TestApi(t *testing.T) {
 
 	alice.Stop()
 	bob.Stop()
+	rm.Stop()
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"h0tb0x/base"
 	"h0tb0x/crypto"
+	"h0tb0x/db"
+	"h0tb0x/rendezvous"
 	"h0tb0x/transfer"
 	"io"
 	"net"
@@ -43,8 +45,11 @@ func (this *didWrite) Write(p []byte) (n int, err error) {
 type friendInfo struct {
 	id          int
 	fingerprint *crypto.Digest
+	rendezvous  string
+	publicKey   *crypto.PublicIdentity
 	host        string
 	port        uint16
+	failed      bool
 }
 
 // The LinkMgr is the primary interface for the Link Layer
@@ -138,6 +143,23 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 	}
 }
 
+func (this *LinkMgr) tryRendezvous(ra string, fp *crypto.Digest) *friendInfo {
+	this.Log.Printf("Doing Rendezvous lookup")
+	rec, err := rendezvous.GetRendezvous(ra, fp.String())
+
+	var fi *friendInfo
+	if err == nil {
+		this.Log.Printf("Got new host: %s, port: %d", rec.Host, rec.Port)
+		this.UpdateHostData(fp, rec.Host, uint16(rec.Port))
+		this.cmut.RLock()
+		fi = this.friendsFp[fp.String()]
+		this.cmut.RUnlock()
+	} else {
+		this.Log.Printf("Rendezvous failed: %s", err)
+	}
+	return fi
+}
+
 // Generate an outbound TLS connection so we can hand verify the remote side
 func (this *LinkMgr) safeDial(netStr string, host string) (net.Conn, error) {
 	var id int
@@ -153,18 +175,30 @@ func (this *LinkMgr) safeDial(netStr string, host string) (net.Conn, error) {
 		return nil, fmt.Errorf("Dial of removed friend: %s", host)
 	}
 	this.cmut.RUnlock()
+	if fi.failed || fi.host == "$" {
+		fi2 := this.tryRendezvous(fi.rendezvous, fi.fingerprint)
+		if fi2 == nil {
+			if fi.host == "$" {
+				return nil, fmt.Errorf("Unable to connect, don't know address yet & rendezvous failed")
+			}
+		} else {
+			fi = fi2
+		}
+	}
 	this.Log.Printf("Dialing(%s:%d)", fi.host, fi.port)
 	var dialer net.Dialer
 	dialer.Deadline = time.Now().Add(DialTimeout)
 	tcpconn, err := dialer.Dial(netStr, fmt.Sprintf("%s:%d", fi.host, fi.port))
 
 	if err != nil {
+		fi.failed = true
 		return nil, err
 	}
 
 	conn := tls.Client(tcpconn, this.clientTls)
 	err = conn.Handshake()
 	if err != nil {
+		fi.failed = true
 		return nil, err
 	}
 
@@ -172,15 +206,18 @@ func (this *LinkMgr) safeDial(netStr string, host string) (net.Conn, error) {
 
 	if len(state.PeerCertificates) < 1 {
 		err = fmt.Errorf("Missing peer certificate")
+		fi.failed = true
 		return nil, err
 	}
 
 	ident, err := crypto.PublicFromCert(state.PeerCertificates[0])
 	if err != nil {
+		fi.failed = true
 		return nil, err
 	}
 	if ident.Fingerprint().String() != fi.fingerprint.String() {
 		err = fmt.Errorf("Invalid peer certificate")
+		fi.failed = true
 		return nil, err
 	}
 
@@ -238,6 +275,33 @@ func (this *LinkMgr) AddListener(f func(id int, fingerprint *crypto.Digest, what
 	this.listeners = append(this.listeners, f)
 }
 
+func (this *LinkMgr) decodeFriend(row db.Row, failed bool) *friendInfo {
+	var id int
+	var fp []byte
+	var rendezvous string
+	var pubData []byte
+	var host string
+	var port uint16
+	this.Db.Scan(row, &id, &fp, &rendezvous, &pubData, &host, &port)
+	var fingerprint *crypto.Digest
+	err := transfer.DecodeBytes(fp, &fingerprint)
+	if err != nil {
+		panic(err)
+	}
+	var publicKey *crypto.PublicIdentity
+	if pubData != nil {
+		err := transfer.DecodeBytes(pubData, &publicKey)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return &friendInfo{
+		id: id, fingerprint: fingerprint, rendezvous: rendezvous,
+		publicKey: publicKey, host: host, port: port,
+		failed: failed,
+	}
+}
+
 // Kicks off the link manager, presumes Callbacks has been set
 func (this *LinkMgr) Run() error {
 	conn, err := net.Listen("tcp", this.server.Addr)
@@ -246,21 +310,12 @@ func (this *LinkMgr) Run() error {
 	}
 	this.listener = tls.NewListener(conn, this.server.TLSConfig)
 
-	rows := this.Db.MultiQuery("SELECT id, fingerprint, host, port FROM Friend")
+	rows := this.Db.MultiQuery(
+		"SELECT id, fingerprint, rendezvous, public_key, host, port FROM Friend")
 	for rows.Next() {
-		var id int
-		var fp []byte
-		var host string
-		var port uint16
-		this.Db.Scan(rows, &id, &fp, &host, &port)
-		var fingerprint *crypto.Digest
-		err := transfer.DecodeBytes(fp, &fingerprint)
-		if err != nil {
-			panic(err)
-		}
-		fi := &friendInfo{id: id, fingerprint: fingerprint, host: host, port: port}
-		this.friendsFp[fingerprint.String()] = fi
-		this.friendsId[id] = fi
+		fi := this.decodeFriend(rows, false)
+		this.friendsFp[fi.fingerprint.String()] = fi
+		this.friendsId[fi.id] = fi
 	}
 
 	this.cmut.RLock()
@@ -286,14 +341,40 @@ func (this *LinkMgr) Stop() {
 	this.Db.Close()
 }
 
-// Add a new friend, or if the friend exists, update the host and port data.
-func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, host string, port uint16) {
+// Add a new friend, or if the friend exists, update rendezvous address
+func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, rendezvous string) {
 	this.cmut.Lock()
 	defer this.cmut.Unlock()
 	// Make or insert friend
 	this.Db.Exec(
-		"INSERT OR IGNORE INTO Friend (id, fingerprint, host, port) VALUES (NULL, ?, ?, ?)",
-		fp.Bytes(), host, port)
+		"INSERT OR IGNORE INTO Friend (id, fingerprint, rendezvous, host) VALUES (NULL, ?, ?, '$')",
+		fp.Bytes(), rendezvous)
+
+	row := this.Db.SingleQuery("SELECT id FROM Friend WHERE fingerprint = ?", fp.Bytes())
+	var id int
+	this.Db.Scan(row, &id)
+
+	this.Db.Exec("UPDATE Friend SET rendezvous = ? WHERE id = ?",
+		rendezvous, id)
+
+	_, ok := this.friendsFp[fp.String()]
+	row = this.Db.SingleQuery(`SELECT id, fingerprint, rendezvous, public_key, host, port 
+				FROM Friend WHERE id = ?`, id)
+	fi := this.decodeFriend(row, false)
+	this.friendsFp[fi.fingerprint.String()] = fi
+	this.friendsId[id] = fi
+	if !ok {
+		// If it was added, signal upper layer
+		for _, callback := range this.listeners {
+			callback(id, fp, FriendAdded)
+		}
+	}
+}
+
+// Update a friend's host and port data, allows bypass of rendezvous mechanism
+func (this *LinkMgr) UpdateHostData(fp *crypto.Digest, host string, port uint16) {
+	this.cmut.Lock()
+	defer this.cmut.Unlock()
 
 	row := this.Db.SingleQuery("SELECT id FROM Friend WHERE fingerprint = ?", fp.Bytes())
 	var id int
@@ -302,16 +383,11 @@ func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, host string, port uint16
 	this.Db.Exec("UPDATE Friend SET host = ?, port = ? WHERE id = ?",
 		host, port, id)
 
-	_, ok := this.friendsFp[fp.String()]
-	fi := &friendInfo{id: id, fingerprint: fp, host: host, port: port}
-	this.friendsFp[fp.String()] = fi
+	row = this.Db.SingleQuery(`SELECT id, fingerprint, rendezvous, public_key, host, port 
+				FROM Friend WHERE id = ?`, id)
+	fi := this.decodeFriend(row, false)
+	this.friendsFp[fi.fingerprint.String()] = fi
 	this.friendsId[id] = fi
-	if !ok {
-		// If it was added, signal upper layer
-		for _, callback := range this.listeners {
-			callback(id, fp, FriendAdded)
-		}
-	}
 }
 
 // Add a new friend, or if the friend exists, update the host and port data.
