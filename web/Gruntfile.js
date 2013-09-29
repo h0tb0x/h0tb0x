@@ -5,16 +5,22 @@ module.exports = function(grunt) {
 		pkg: grunt.file.readJSON('package.json'),
 
 		ts: {
-			app: {
+			dev: {
 				src: ['app/js/**/*.ts'],
 				reference: 'app/js/reference.ts',
 				out: 'app/app.js',
 				watch: 'app/js'
+			},
+			build: {
+				src: ['app/js/**/*.ts'],
+				reference: 'app/js/reference.ts',
+				out: 'app/app.js'
 			}
 		}
 	});
 
-	grunt.registerTask('default', ['tsd-pkg', 'ts']);
+	grunt.registerTask('default', ['tsd-pkg', 'ts:build']);
+	grunt.registerTask('watch', ['tsd-pkg', 'ts:dev']);
 
 	grunt.registerTask('tsd-pkg', 'Install TypeScript definitions specified in package.json', function() {
 		this.requiresConfig('pkg');
