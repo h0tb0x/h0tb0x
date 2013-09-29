@@ -4,7 +4,7 @@ module App {
 	'use strict';
 
 	export interface IRootScope extends ng.IScope {
-		self: ISelf;
+		selfCid: string;
 	}
 
 	export interface IHttpService extends ng.IHttpService {
@@ -14,7 +14,10 @@ module App {
 	var app = angular.module('App', ['ngResource', 'angularFileUpload'])
 
 		// configuration
-		.config(['$routeProvider', function($routeProvider: ng.IRouteProvider) {
+		.config(['$routeProvider',
+			function(
+				$routeProvider: ng.IRouteProvider
+			) {
 			$routeProvider
 				.when('/', {
 					templateUrl: 'html/main.html',
@@ -46,6 +49,9 @@ module App {
 		.controller('FriendListCtrl', FriendListCtrl.prototype.injection())
 		.controller('FriendDetailCtrl', FriendDetailCtrl.prototype.injection())
 
+		// services
+		.service('InitService', InitService.prototype.injection())
+
 		// resources
 		.factory('SelfResource', SelfResource())
 		.factory('PrivateResource', PrivateResource())
@@ -56,13 +62,13 @@ module App {
 		.factory('FriendResource', FriendResource())
 
 		// initialization
-		.run(['$log', '$rootScope', 'SelfResource',
+		.run(['$log', '$rootScope', 'InitService',
 			function(
 				$log: ng.ILogService, 
 				$rootScope: IRootScope, 
-				Self: ng.resource.IResourceClass
+				init: InitService
 			) {
-				$rootScope.self = <ISelf> Self.get();
+				init.load();
 			}
 		])
 }

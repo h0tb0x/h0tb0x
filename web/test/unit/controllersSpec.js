@@ -1,8 +1,10 @@
 'use strict';
 
-describe('H0tb0x controllers', function() {
+describe('App', function() {
+	var mockInitService;
+	var httpBackend;
 
-	beforeEach(function(){
+	beforeEach(function() {
 		this.addMatchers({
 			toEqualData: function(expected) {
 				return angular.equals(this.actual, expected);
@@ -10,54 +12,73 @@ describe('H0tb0x controllers', function() {
 		});
 	});
 
-	beforeEach(module('App'));
+	beforeEach(function() {
+		module('App', function($provide) {
+			mockInitService = {
+				load: function() {
+					console.log('hi');
+				}
+			}
+			spyOn(mockInitService, 'load');
+			$provide.value('InitService', mockInitService);
+		});
 
-	describe('FriendListCtrl', function() {
-		var scope, ctrl, $httpBackend;
-		var friends = [
-			{ id: '1' },
-			{ id: '2' }
-		];
-		var self = {};
-
-		beforeEach(inject(function(_$httpBackend_, $rootScope, $controller) {
-			$httpBackend = _$httpBackend_;
-			$httpBackend.expectGET('/api/self').respond(self);
-			$httpBackend.expectGET('/api/friends').respond(friends);
-			scope = $rootScope.$new();
-			ctrl = $controller('FriendListCtrl', {$scope: scope});
-		}));
-
-		it('should have 2 items from xhr', function() {
-			expect(scope.friends).toEqual([]);
-			$httpBackend.flush();
-
-			expect(scope.friends).toEqualData(friends);
+		inject(function($httpBackend) {
+			httpBackend = $httpBackend;
 		});
 	});
 
-	describe('CollectionListCtrl', function() {
-		var scope, ctrl, $httpBackend;
-		var self = {};
-		var data = [
-			{ id: '1' },
-			{ id: '2' }
-		];
+	afterEach(function() {
+		httpBackend.verifyNoOutstandingExpectation();
+		httpBackend.verifyNoOutstandingRequest();
+	});
 
-		beforeEach(inject(function(_$httpBackend_, $rootScope, $controller) {
-			$httpBackend = _$httpBackend_;
-			$httpBackend.expectGET('/api/self').respond(self);
-			$httpBackend.expectGET('/api/collections').respond(data);
-			scope = $rootScope.$new();
-			ctrl = $controller('CollectionListCtrl', {$scope: scope});
-		}));
+	it('should load self at startup', function() {
+		expect(mockInitService.load).toHaveBeenCalled();
+	});
 
-		it('should have 2 items from xhr', function() {
-			expect(scope.data).toEqual([]);
-			$httpBackend.flush();
+	describe('controllers', function() {
 
-			expect(scope.data).toEqualData(data);
+		describe('FriendListCtrl', function() {
+			var scope, ctrl;
+			var friends = [
+				{ id: '1' },
+				{ id: '2' }
+			];
+
+			beforeEach(inject(function($rootScope, $controller) {
+				httpBackend.expectGET('/api/friends').respond(friends);
+				scope = $rootScope.$new();
+				ctrl = $controller('FriendListCtrl', {$scope: scope});
+			}));
+
+			it('should have 2 items from xhr', function() {
+				expect(scope.friends).toEqual([]);
+				httpBackend.flush();
+				expect(scope.friends).toEqualData(friends);
+			});
 		});
+
+		describe('CollectionListCtrl', function() {
+			var scope, ctrl;
+			var collections = [
+				{ id: '1' },
+				{ id: '2' }
+			];
+
+			beforeEach(inject(function($rootScope, $controller) {
+				httpBackend.expectGET('/api/collections').respond(collections);
+				scope = $rootScope.$new();
+				ctrl = $controller('CollectionListCtrl', {$scope: scope});
+			}));
+
+			it('should have 2 items from xhr', function() {
+				expect(scope.collections).toEqual([]);
+				httpBackend.flush();
+				expect(scope.collections).toEqualData(collections);
+			});
+		});
+
 	});
 
 });
