@@ -9,6 +9,8 @@ module App {
 		port: number;
 		selfCid: string;
 		passport: string;
+		rendezvous: string;
+		publicKey: string;
 	}
 
 	export interface IPrivateProfile extends ng.resource.IResource {

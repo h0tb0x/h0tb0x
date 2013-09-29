@@ -13,6 +13,9 @@ module App {
 	}
 
 	export class MainCtrl {
+		publicCid: string;
+		pictureUrl: string = '/api/collections/:cid/data/picture';
+
 		public injection(): any[] {
 			return [
 				'$log',
@@ -41,21 +44,27 @@ module App {
 				if (this.publicCid) {
 					this.loadPublic();
 				} else {
-					var collection = <ICollection> new Collection();
-					collection.$save(() => {
-						$scope.private.publicCid = this.publicCid = collection.id;
-						$scope.private.$save();
-						this.loadPublic();
-					});
+					this.newPrivate();
 				}
+			}, (data, status, headers, config) => {
+				this.newPrivate();
 			});
 
 			$scope.savePublic = () => this.savePublic();
 			$scope.onFileSelect = ($files) => this.onFileSelect($files);
 		}
 
+		newPrivate() {
+			var collection = <ICollection> new this.Collection();
+			collection.$save(() => {
+				this.$scope.private.publicCid = this.publicCid = collection.id;
+				this.$scope.private.$save();
+				this.loadPublic();
+			});
+		}
+
 		loadPublic() {
-			this.$scope.pictureUrl = '/api/collections/' + this.publicCid + '/data/picture';
+			this.updatePicture();
 			this.$scope.public = <IPublicProfile> this.Profile.get({cid: this.publicCid});
 		}
 
@@ -69,12 +78,14 @@ module App {
 					url: this.$scope.pictureUrl,
 					file: file
 				}).then((data, status, headers, config) => {
-					this.$log.info(data);
+					this.updatePicture();
 				});
 			});
 		}
 
-		publicCid: string;
+		updatePicture() {
+			this.$scope.pictureUrl = this.pictureUrl.replace(':cid', this.publicCid) + '#' + new Date().getTime();
+		}
 	}
 
 	export interface ICollectionListScope extends ng.IScope {
