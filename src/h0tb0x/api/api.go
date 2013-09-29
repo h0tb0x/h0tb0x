@@ -307,6 +307,12 @@ func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *
 			return
 		}
 	}
+
+	if fp.String() == this.Ident.Public().Fingerprint().String() {
+		this.sendError(w, http.StatusBadRequest, "Can not friend self")
+		return
+	}
+
 	// Now validate the public key if it exist
 	var pubkey *crypto.PublicIdentity
 	if json.PublicKey != "" {
