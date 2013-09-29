@@ -5,8 +5,10 @@ import (
 	"h0tb0x/base"
 	"h0tb0x/crypto"
 	"h0tb0x/link"
+	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
 	"log"
+	"os"
 	"testing"
 	"time"
 )
@@ -26,6 +28,7 @@ func NewTestNode(name string, port uint16) *TestNode {
 	link := link.NewLinkMgr(base)
 	sync := sync.NewSyncMgr(link)
 	meta := NewMetaMgr(sync)
+	rendezvous.Publish("localhost:3030", base.Ident, "localhost", port)
 
 	tn := &TestNode{
 		id:   base.Ident,
@@ -44,8 +47,8 @@ func (this *TestNode) Stop() {
 }
 
 func CreateLink(lhs, rhs *TestNode) {
-	lhs.link.AddUpdateFriend(rhs.id.Fingerprint(), "localhost", rhs.port)
-	rhs.link.AddUpdateFriend(lhs.id.Fingerprint(), "localhost", lhs.port)
+	lhs.link.AddUpdateFriend(rhs.id.Fingerprint(), "localhost:3030")
+	rhs.link.AddUpdateFriend(lhs.id.Fingerprint(), "localhost:3030")
 }
 
 func SubPub(lhs, rhs *TestNode, cid string) {
@@ -54,6 +57,10 @@ func SubPub(lhs, rhs *TestNode, cid string) {
 }
 
 func TestMeta(t *testing.T) {
+	os.Remove("/tmp/rtest.db")
+	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
+	rm.Run()
+
 	// Make some users
 	alice := NewTestNode("Alice", 10001)
 	bob := NewTestNode("Bob", 10002)
@@ -102,4 +109,6 @@ func TestMeta(t *testing.T) {
 	bob.Stop()
 	carol.Stop()
 	dave.Stop()
+
+	rm.Stop()
 }

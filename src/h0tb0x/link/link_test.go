@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"h0tb0x/base"
 	"h0tb0x/crypto"
+	"h0tb0x/rendezvous"
 	"io"
 	"io/ioutil"
+	"os"
 	"sync"
 	"testing"
 )
@@ -20,6 +22,7 @@ type TestNode struct {
 func NewTestNode(name string, port uint16) *TestNode {
 	base := base.NewBase(name, port)
 	link := NewLinkMgr(base)
+	rendezvous.Publish("localhost:3030", base.Ident, "localhost", port)
 
 	return &TestNode{
 		Base: base,
@@ -38,8 +41,8 @@ func (this *TestNode) Stop() {
 }
 
 func CreateLink(lhs, rhs *TestNode) {
-	lhs.Link.AddUpdateFriend(rhs.Link.Ident.Fingerprint(), "localhost", rhs.Link.Port)
-	rhs.Link.AddUpdateFriend(lhs.Link.Ident.Fingerprint(), "localhost", lhs.Link.Port)
+	lhs.Link.AddUpdateFriend(rhs.Link.Ident.Fingerprint(), "localhost:3030")
+	rhs.Link.AddUpdateFriend(lhs.Link.Ident.Fingerprint(), "localhost:3030")
 }
 
 func (this *TestNode) OnFriendChange(id int, fingerprint *crypto.Digest, what FriendStatus) {
@@ -54,6 +57,10 @@ func (this *TestNode) OnData(id int, fp *crypto.Digest, req io.Reader, resp io.W
 }
 
 func TestLink(t *testing.T) {
+	os.Remove("/tmp/rtest.db")
+	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
+	rm.Run()
+
 	alice := NewTestNode("Alice", 10001)
 	alice.Run()
 	bob := NewTestNode("Bob", 10002)
@@ -74,4 +81,5 @@ func TestLink(t *testing.T) {
 
 	alice.Stop()
 	bob.Stop()
+	rm.Stop()
 }

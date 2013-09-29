@@ -5,7 +5,9 @@ import (
 	"h0tb0x/base"
 	"h0tb0x/link"
 	"h0tb0x/meta"
+	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
+	"os"
 	"testing"
 	"time"
 )
@@ -16,16 +18,22 @@ func NewTestNode(name string, port uint16) *DataMgr {
 	sync := sync.NewSyncMgr(link)
 	meta := meta.NewMetaMgr(sync)
 	data := NewDataMgr("/tmp/wtf/"+name, meta)
+	rendezvous.Publish("localhost:3030", base.Ident, "localhost", port)
+
 	data.Run()
 	return data
 }
 
 func CreateLink(lhs, rhs *DataMgr) {
-	lhs.AddUpdateFriend(rhs.Ident.Fingerprint(), "localhost", rhs.Port)
-	rhs.AddUpdateFriend(lhs.Ident.Fingerprint(), "localhost", lhs.Port)
+	lhs.AddUpdateFriend(rhs.Ident.Fingerprint(), "localhost:3030")
+	rhs.AddUpdateFriend(lhs.Ident.Fingerprint(), "localhost:3030")
 }
 
 func TestData(t *testing.T) {
+	os.Remove("/tmp/rtest.db")
+	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
+	rm.Run()
+
 	alice := NewTestNode("Alice", 10001)
 	bob := NewTestNode("Bob", 10002)
 
@@ -57,4 +65,5 @@ func TestData(t *testing.T) {
 
 	alice.Stop()
 	bob.Stop()
+	rm.Stop()
 }

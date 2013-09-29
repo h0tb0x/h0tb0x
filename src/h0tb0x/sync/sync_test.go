@@ -4,7 +4,9 @@ import (
 	"h0tb0x/base"
 	"h0tb0x/crypto"
 	"h0tb0x/link"
+	"h0tb0x/rendezvous"
 	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +25,7 @@ func NewTestNode(name string, port uint16) *TestNode {
 	base := base.NewBase(name, port)
 	link := link.NewLinkMgr(base)
 	sync := NewSyncMgr(link)
+	rendezvous.Publish("localhost:3030", base.Ident, "localhost", port)
 
 	tn := &TestNode{
 		log:   base.Log,
@@ -46,11 +49,15 @@ func (this *TestNode) Stop() {
 }
 
 func CreateLink(lhs, rhs *TestNode) {
-	lhs.link.AddUpdateFriend(rhs.ident.Fingerprint(), "localhost", rhs.port)
-	rhs.link.AddUpdateFriend(lhs.ident.Fingerprint(), "localhost", lhs.port)
+	lhs.link.AddUpdateFriend(rhs.ident.Fingerprint(), "localhost:3030")
+	rhs.link.AddUpdateFriend(lhs.ident.Fingerprint(), "localhost:3030")
 }
 
 func TestSync(t *testing.T) {
+	os.Remove("/tmp/rtest.db")
+	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
+	rm.Run()
+
 	alice := NewTestNode("Alice", 10001)
 	bob := NewTestNode("Bob", 10002)
 

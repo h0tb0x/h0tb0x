@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/mux"
 	"h0tb0x/crypto"
 	"h0tb0x/data"
+	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
 	"h0tb0x/transfer"
 	"net"
@@ -16,21 +17,25 @@ import (
 
 type ApiMgr struct {
 	*data.DataMgr
-	ExtHost string
-	ExtPort uint16
-	router  *mux.Router
-	server  *http.Server
-	wait    gosync.WaitGroup
-	port    uint16
-	conn    net.Listener
-	mutex   gosync.Mutex
+	extHost    string
+	extPort    uint16
+	rendezvous string
+	router     *mux.Router
+	server     *http.Server
+	wait       gosync.WaitGroup
+	port       uint16
+	conn       net.Listener
+	mutex      gosync.Mutex
 }
 
 type SelfJson struct {
-	Id      string `json:"id"`
-	Host    string `json:"host"`
-	Port    uint16 `json:"port"`
-	SelfCid string `json:"selfCid"`
+	Id         string `json:"id"`
+	Rendezvous string `json:"rendezvous"`
+	PublicKey  string `json:"publicKey"`
+	BizCard    string `json:"bizCard"`
+	Host       string `json:"host"`
+	Port       uint16 `json:"port"`
+	SelfCid    string `json:"selfCid"`
 }
 
 type FriendJson struct {
@@ -59,7 +64,7 @@ type WriterJson struct {
 	PubKey string `json:"pubkey"`
 }
 
-func NewApiMgr(extHost string, extPort uint16, apiPort uint16, data *data.DataMgr) *ApiMgr {
+func NewApiMgr(rendezvous string, apiPort uint16, data *data.DataMgr) *ApiMgr {
 	router := mux.NewRouter()
 	server := &http.Server{
 		Handler: router,
@@ -67,12 +72,11 @@ func NewApiMgr(extHost string, extPort uint16, apiPort uint16, data *data.DataMg
 	}
 
 	api := &ApiMgr{
-		ExtHost: extHost,
-		ExtPort: extPort,
-		DataMgr: data,
-		router:  router,
-		server:  server,
-		port:    apiPort,
+		rendezvous: rendezvous,
+		DataMgr:    data,
+		router:     router,
+		server:     server,
+		port:       apiPort,
 	}
 
 	router.HandleFunc("/api/self", api.getSelf).Methods("GET")
@@ -164,27 +168,42 @@ func (this *ApiMgr) decodeJsonBody(w http.ResponseWriter, req *http.Request, out
 
 func (this *ApiMgr) SetExt(host net.IP, port uint16) {
 	this.mutex.Lock()
-	this.ExtHost = host.String()
-	this.ExtPort = port
+	this.extHost = host.String()
+	this.extPort = port
 	this.mutex.Unlock()
+	rendezvous.Publish(this.rendezvous, this.Ident, this.extHost, this.extPort)
 }
 
 func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
 	myFp := this.Ident.Public().Fingerprint()
 	myCid := crypto.HashOf(myFp, myFp).String()
 	this.mutex.Lock()
+	bizCard := transfer.AsString(myFp, this.rendezvous)
 	json := SelfJson{
-		Id:      myFp.String(),
-		Host:    this.ExtHost,
-		Port:    this.ExtPort,
-		SelfCid: myCid,
+		Id:         myFp.String(),
+		Rendezvous: this.rendezvous,
+		PublicKey:  transfer.AsString(this.Ident.Public()),
+		BizCard:    bizCard,
+		Host:       this.extHost,
+		Port:       this.extPort,
+		SelfCid:    myCid,
 	}
 	this.mutex.Unlock()
 	this.sendJson(w, json)
 }
 
-func (this *ApiMgr) populateFriend(json *FriendJson, myFp, fp *crypto.Digest) {
+func (this *ApiMgr) populateFriend(json *FriendJson, myFp, fp *crypto.Digest, keyBin []byte) {
 	json.Id = fp.String()
+	if keyBin != nil {
+		var key *crypto.PublicIdentity
+		if transfer.DecodeBytes(keyBin, &key) == nil {
+			json.PublicKey = transfer.AsString(key)
+		}
+	}
+	if json.Host == "$" {
+		json.Host = ""
+	}
+	json.BizCard = transfer.AsString(fp, json.Rendezvous)
 	json.SelfCid = crypto.HashOf(fp, fp).String()
 	json.SendCid = crypto.HashOf(myFp, fp).String()
 	json.RecvCid = crypto.HashOf(fp, myFp).String()
@@ -192,15 +211,16 @@ func (this *ApiMgr) populateFriend(json *FriendJson, myFp, fp *crypto.Digest) {
 
 func (this *ApiMgr) getFriends(w http.ResponseWriter, req *http.Request) {
 	myFp := this.Ident.Public().Fingerprint()
-	rows := this.Db.MultiQuery("SELECT fingerprint, host, port FROM Friend")
+	rows := this.Db.MultiQuery("SELECT fingerprint, rendezvous, public_key, host, port FROM Friend")
 	out := []FriendJson{}
 	for rows.Next() {
 		var json FriendJson
 		var fpb []byte
-		this.Db.Scan(rows, &fpb, &json.Host, &json.Port)
+		var pubkey []byte
+		this.Db.Scan(rows, &fpb, &json.Rendezvous, &pubkey, &json.Host, &json.Port)
 		var fp *crypto.Digest
 		transfer.DecodeBytes(fpb, &fp)
-		this.populateFriend(&json, myFp, fp)
+		this.populateFriend(&json, myFp, fp, pubkey)
 		out = append(out, json)
 	}
 	this.sendJson(w, out)
@@ -212,55 +232,102 @@ func (this *ApiMgr) getFriend(w http.ResponseWriter, req *http.Request) {
 		this.sendError(w, http.StatusBadRequest, "Invalid friend id")
 		return
 	}
-	row := this.Db.SingleQuery("SELECT id, host, port FROM Friend WHERE fingerprint = ?", fp.Bytes())
+	row := this.Db.SingleQuery("SELECT id, rendezvous, public_key, host, port FROM Friend WHERE fingerprint = ?", fp.Bytes())
 	var json FriendJson
-	if !this.Db.MaybeScan(row, &json.Id, &json.Host, &json.Port) {
+	var pubkey []byte
+	if !this.Db.MaybeScan(row, &json.Rendezvous, &pubkey, &json.Id, &json.Host, &json.Port) {
 		this.sendError(w, http.StatusNotFound, "Unknown friend")
 		return
 	}
 	myFp := this.Ident.Public().Fingerprint()
-	this.populateFriend(&json, myFp, fp)
+	this.populateFriend(&json, myFp, fp, pubkey)
 	this.sendJson(w, json)
 }
 
 func (this *ApiMgr) putFriend(w http.ResponseWriter, req *http.Request) {
+	// Get URL version of friend
 	fp := this.decodeWho(req)
 	if fp == nil {
 		this.sendError(w, http.StatusBadRequest, "Invalid friend id")
 		return
 	}
-	var json FriendJson
+	// Get Json
+	var json *FriendJson
 	if !this.decodeJsonBody(w, req, &json) {
 		return
 	}
-	this.doPutFriend(w, req, fp, &json.SelfJson)
+	// If Json has Id, check that it matches
+	if json.Id != "" && json.Id != fp.String() {
+		this.sendError(w, http.StatusBadRequest, "Friend ID's are inconsistent")
+		return
+	}
+	// Set Id in case it's absent
+	json.Id = fp.String()
+
+	// Do the real work
+	this.doPutFriend(w, req, &json.SelfJson)
 }
 
 func (this *ApiMgr) postFriends(w http.ResponseWriter, req *http.Request) {
 	var json FriendJson
+	// Get Json
 	if !this.decodeJsonBody(w, req, &json) {
 		return
 	}
-	var fp *crypto.Digest
-	err := transfer.DecodeString(json.Id, &fp)
-	if err != nil {
-		this.sendError(w, http.StatusBadRequest, "Invalid friend id")
-		return
-	}
-	this.doPutFriend(w, req, fp, &json.SelfJson)
+	// Apply it
+	this.doPutFriend(w, req, &json.SelfJson)
 }
 
-func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, fp *crypto.Digest, json *SelfJson) {
-	if json.Port == 0 || json.Host == "" {
-		this.sendError(w, http.StatusBadRequest, "Missing required friend fields")
-		return
+func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *SelfJson) {
+	var fp *crypto.Digest
+	var rendezvous string
+
+	err := transfer.DecodeString(json.BizCard, &fp, &rendezvous)
+	if err == nil {
+		// If BizCard decodes, validate consistency
+		if json.Id != "" && json.Id != fp.String() {
+			this.sendError(w, http.StatusBadRequest, "Friend ID's are inconsistent")
+			return
+		}
+		if json.Rendezvous != "" && json.Rendezvous != rendezvous {
+			this.sendError(w, http.StatusBadRequest, "Rendezvous addresses are inconsistent")
+			return
+		}
+	} else {
+		// If not, try getting the fields from other places
+		rendezvous = json.Rendezvous
+		err = transfer.DecodeString(json.Id, &fp)
+		if err != nil || rendezvous == "" {
+			this.sendError(w, http.StatusBadRequest, "Missing required fields")
+			return
+		}
 	}
-	if json.Id == this.Ident.Public().Fingerprint().String() {
-		this.sendError(w, http.StatusBadRequest, "Can not friend self")
-		return
+	// Now validate the public key if it exist
+	var pubkey *crypto.PublicIdentity
+	if json.PublicKey != "" {
+		err = transfer.DecodeString(json.PublicKey, &pubkey)
+		if err != nil || pubkey.Fingerprint().String() != fp.String() {
+			this.sendError(w, http.StatusBadRequest, "Public key is inconsitent")
+			return
+		}
 	}
-	this.AddUpdateFriend(fp, json.Host, json.Port)
+
+	// By this point, everything is consistent and fp & rendezvous are valid
+	// add/update friend
+	this.AddUpdateFriend(fp, rendezvous)
 	this.CreateSpecialCollection(this.Ident, fp)
+
+	// Now check to see if we are getting host and port, in which case update them
+	if json.Host != "" && json.Port != 0 {
+		// If so, update them
+		this.UpdateHostData(fp, json.Host, json.Port)
+	}
+
+	// If public key exists, add it
+	// TODO: Actually write AddPublicKey and enable code
+	//if (pubkey != nil) {
+	//	this.AddPublicKey(fp, pubkey)
+	//}
 }
 
 func (this *ApiMgr) deleteFriend(w http.ResponseWriter, req *http.Request) {
