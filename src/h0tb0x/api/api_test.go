@@ -109,8 +109,9 @@ func TestApi(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	resp = SafePost(client, "http://localhost:2001/api/collections", "")
-	var cid string
-	SafeDecode(resp.Body, &cid)
+	var cj *CollectionJson 
+	SafeDecode(resp.Body, &cj)
+	cid := cj.Id
 	alice.Log.Printf("Made a new collection: %s", cid)
 	resp = SafePost(client, "http://localhost:2001/api/invites",
 		&InviteJson{Cid: cid, Friend: selfBob.Id})

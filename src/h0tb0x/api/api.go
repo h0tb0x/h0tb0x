@@ -1,8 +1,9 @@
 package api
 
 import (
-	"encoding/base64"
 	"encoding/json"
+	"io"
+	"bytes"
 	"fmt"
 	"github.com/gorilla/mux"
 	"h0tb0x/crypto"
@@ -274,11 +275,11 @@ func (this *ApiMgr) putFriend(w http.ResponseWriter, req *http.Request) {
 func (this *ApiMgr) postFriends(w http.ResponseWriter, req *http.Request) {
 	// Grab whole post as a string
 	var buf bytes.Buffer
-	io.copy(&buf, req.Body())
-	json = &SelfJson{ Passport: string(buf.Bytes()) }
+	io.Copy(&buf, req.Body)
+	json := &SelfJson{ Passport: string(buf.Bytes()) }
 
 	// Apply it
-	this.doPutFriend(w, req, &json.SelfJson)
+	this.doPutFriend(w, req, json)
 }
 
 func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *SelfJson) {
