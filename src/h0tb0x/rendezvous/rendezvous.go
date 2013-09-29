@@ -152,6 +152,7 @@ func decodeJsonBody(w http.ResponseWriter, req *http.Request, out interface{}) b
 func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	key := vars["key"]
+	fmt.Printf("PUT request for key %s\n", key)
 	var record *RecordJson
 	if !decodeJsonBody(w, req, &record) {
 		return
@@ -182,6 +183,7 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 func (this *RendezvousMgr) onGet(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	key := vars["key"]
+	fmt.Printf("GET request for key %s\n", key)
 	row := this.database.SingleQuery(`SELECT public_key, version, host, port, signature
 				FROM Rendezvous WHERE fingerprint = ?`, key)
 	record := &RecordJson{Fingerprint: key}
