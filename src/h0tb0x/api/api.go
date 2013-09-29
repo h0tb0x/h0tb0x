@@ -1,9 +1,8 @@
 package api
 
 import (
-	"encoding/json"
-	"io"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
 	"h0tb0x/crypto"
@@ -11,6 +10,7 @@ import (
 	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
 	"h0tb0x/transfer"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -277,7 +277,7 @@ func (this *ApiMgr) postFriends(w http.ResponseWriter, req *http.Request) {
 	// Grab whole post as a string
 	var buf bytes.Buffer
 	io.Copy(&buf, req.Body)
-	json := &SelfJson{ Passport: string(buf.Bytes()) }
+	json := &SelfJson{Passport: string(buf.Bytes())}
 
 	// Apply it
 	this.doPutFriend(w, req, json)
