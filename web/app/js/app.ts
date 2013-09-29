@@ -32,7 +32,7 @@ module App {
 					templateUrl: 'html/collection-list.html',
 					controller: 'CollectionListCtrl'
 				})
-				.when('/collections/:id', {
+				.when('/collections/:cid', {
 					templateUrl: 'html/collection-detail.html',
 					controller: 'CollectionDetailCtrl'
 				})
