@@ -240,7 +240,7 @@ func (this *ApiMgr) getFriend(w http.ResponseWriter, req *http.Request) {
 	row := this.Db.SingleQuery("SELECT id, rendezvous, public_key, host, port FROM Friend WHERE fingerprint = ?", fp.Bytes())
 	var json FriendJson
 	var pubkey []byte
-	if !this.Db.MaybeScan(row, &json.Rendezvous, &pubkey, &json.Id, &json.Host, &json.Port) {
+	if !this.Db.MaybeScan(row, &json.Id, &json.Rendezvous, &pubkey, &json.Host, &json.Port) {
 		this.sendError(w, http.StatusNotFound, "Unknown friend")
 		return
 	}
