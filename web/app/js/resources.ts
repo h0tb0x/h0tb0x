@@ -24,7 +24,7 @@ module App {
 				$resource: ng.resource.IResourceService
 			): ng.resource.IResourceClass {
 				return $resource('/api/collections/:sid/data/profile', {
-					sid: $rootScope.selfCid
+					sid: $rootScope.self.selfCid
 				}, {
 					save: { method: 'PUT' }
 				})

@@ -4,7 +4,7 @@ module App {
 	'use strict';
 
 	export interface IRootScope extends ng.IScope {
-		selfCid: string;
+		self: ISelf;
 	}
 
 	export interface IHttpService extends ng.IHttpService {

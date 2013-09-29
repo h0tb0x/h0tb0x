@@ -22,7 +22,7 @@ module App {
 
 		public load() {
 			this.Self.get((self: ISelf) => {
-				this.$rootScope.selfCid = self.selfCid;
+				this.$rootScope.self = self;
 			});
 		}
 	}
