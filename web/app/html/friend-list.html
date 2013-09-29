@@ -1,15 +1,19 @@
 <div class="panel panel-default">
 	<div class="panel-heading">Friends</div>
 	<div class="panel-body">
-		<form class="form" role="form">
+		<form class="form-horizontal" role="form">
 			<div class="form-group">
-				<label class="control-label">Send</label>
-				<pre>{{sendBlob}}</pre>
+				<label class="col-lg-4 control-label">My Passport</label>
+				<div class="col-lg-6">
+					<pre>{{self.passport}}</pre>
+				</div>
 			</div>
 			<div class="form-group {{recvBlobStatus}}">
-				<label class="control-label">Receive</label>
-				<textarea class="form-control" rows="3" placeholder="Paste blob from friend here..." ng-model="recvBlob"></textarea>
-				<span class="help-block">{{recvBlobError}}</span>
+				<label class="col-lg-4 control-label">Their Passport</label>
+				<div class="col-lg-6">
+					<textarea class="form-control" rows="3" placeholder="Paste the passport from a friend here..." ng-model="recvBlob"></textarea>
+					<span class="help-block">{{recvBlobError}}</span>
+				</div>
 			</div>
 			<button type="button" class="btn btn-default" ng-click="onAddFriend()">Add Friend</button>
 		</form>

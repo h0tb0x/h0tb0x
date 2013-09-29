@@ -1,14 +1,22 @@
 {
-	"name": "h0tb0x",
-	"description": "h0tb0x reference webapp",
-	"version": "1.0.0",
-	"repository": {
-		"type": "git",
-		"url": "fried.h0tb0x.net:h0tb0x.git"
-	},
-	"devDependencies": {
-		"bower": "~0.9",
-		"karma": "~0.10",
-		"karma-ng-scenario": "~0.1"
-	}
+  "name": "h0tb0x",
+  "description": "h0tb0x reference webapp",
+  "version": "1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "fried.h0tb0x.net:h0tb0x.git"
+  },
+  "tsd": [
+    "angular-resource"
+  ],
+  "devDependencies": {
+    "bower": "~0.9",
+    "karma": "~0.10",
+    "karma-ng-scenario": "~0.1",
+    "typescript": "~0.9.1-1",
+    "grunt": "~0.4.1",
+    "grunt-cli": "~0.1.9",
+    "grunt-ts": "~1.3.0",
+    "tsd": "~0.3.1"
+  }
 }

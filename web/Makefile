@@ -12,3 +12,6 @@ unit-test:
 
 e2e-test:
 	node_modules/.bin/karma start etc/karma-e2e.conf.js
+
+watch:
+	node_modules/.bin/grunt

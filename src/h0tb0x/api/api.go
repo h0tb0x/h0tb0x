@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -27,10 +28,11 @@ type ApiMgr struct {
 }
 
 type SelfJson struct {
-	Id      string `json:"id"`
-	Host    string `json:"host"`
-	Port    uint16 `json:"port"`
-	SelfCid string `json:"selfCid"`
+	Id       string `json:"id"`
+	Host     string `json:"host"`
+	Port     uint16 `json:"port"`
+	SelfCid  string `json:"selfCid"`
+	Passport string `json:"passport"`
 }
 
 type FriendJson struct {
@@ -93,6 +95,7 @@ func NewApiMgr(extHost string, extPort uint16, apiPort uint16, data *data.DataMg
 	router.HandleFunc("/api/collections/{cid}/data", api.listData).Methods("GET")
 	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.getData).Methods("GET")
 	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.putData).Methods("PUT")
+	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.postData).Methods("POST")
 	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.deleteData).Methods("DELETE")
 
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("web/app")))
@@ -172,15 +175,19 @@ func (this *ApiMgr) SetExt(host net.IP, port uint16) {
 func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
 	myFp := this.Ident.Public().Fingerprint()
 	myCid := crypto.HashOf(myFp, myFp).String()
+
 	this.mutex.Lock()
-	json := SelfJson{
-		Id:      myFp.String(),
-		Host:    this.ExtHost,
-		Port:    this.ExtPort,
-		SelfCid: myCid,
+	self := SelfJson{
+		Id:   myFp.String(),
+		Host: this.ExtHost,
+		Port: this.ExtPort,
 	}
 	this.mutex.Unlock()
-	this.sendJson(w, json)
+
+	json, _ := json.Marshal(self)
+	self.Passport = base64.URLEncoding.EncodeToString([]byte(json))
+	self.SelfCid = myCid
+	this.sendJson(w, self)
 }
 
 func (this *ApiMgr) populateFriend(json *FriendJson, myFp, fp *crypto.Digest) {
@@ -237,12 +244,16 @@ func (this *ApiMgr) putFriend(w http.ResponseWriter, req *http.Request) {
 }
 
 func (this *ApiMgr) postFriends(w http.ResponseWriter, req *http.Request) {
+	reader := base64.NewDecoder(base64.URLEncoding, req.Body)
+	dec := json.NewDecoder(reader)
 	var json FriendJson
-	if !this.decodeJsonBody(w, req, &json) {
+	err := dec.Decode(&json)
+	if err != nil {
+		this.sendError(w, http.StatusBadRequest, "Unable to decode JSON")
 		return
 	}
 	var fp *crypto.Digest
-	err := transfer.DecodeString(json.Id, &fp)
+	err = transfer.DecodeString(json.Id, &fp)
 	if err != nil {
 		this.sendError(w, http.StatusBadRequest, "Invalid friend id")
 		return
@@ -307,7 +318,11 @@ func (this *ApiMgr) getCollection(w http.ResponseWriter, req *http.Request) {
 
 func (this *ApiMgr) addCollection(w http.ResponseWriter, req *http.Request) {
 	cid := this.CreateNewCollection(this.Ident)
-	this.sendJson(w, cid)
+	json := &CollectionJson{
+		Id:    cid,
+		Owner: this.GetOwner(cid).Fingerprint().String(),
+	}
+	this.sendJson(w, json)
 }
 
 func (this *ApiMgr) getWriters(w http.ResponseWriter, req *http.Request) {
@@ -442,6 +457,57 @@ func (this *ApiMgr) putData(w http.ResponseWriter, req *http.Request) {
 	err := this.PutData(cid, key, this.Ident, req.Body)
 	if err != nil {
 		this.sendError(w, http.StatusBadRequest, err.Error())
+	}
+}
+
+func (this *ApiMgr) postData(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	cid := vars["cid"]
+	owner := this.GetOwner(cid)
+	if owner == nil {
+		this.sendError(w, http.StatusNotFound, "Collection invalid")
+		return
+	}
+	writer := this.GetWriter(cid, this.Ident.Public().Fingerprint().String())
+	if writer == nil {
+		this.sendError(w, http.StatusUnauthorized, "You are not a writer for this collection")
+		return
+	}
+	// key := vars["key"]
+
+	// err := this.PutData(cid, key, this.Ident, req.Body)
+	// if err != nil {
+	// 	this.sendError(w, http.StatusBadRequest, err.Error())
+	// }
+	err := req.ParseMultipartForm(10 * 1024 * 1024)
+	if err != nil {
+		this.sendError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if len(req.MultipartForm.File) != 1 {
+		this.sendError(w, http.StatusBadRequest, "Missing single file for upload")
+		return
+	}
+
+	for _, fh := range req.MultipartForm.File {
+		if len(fh) != 1 {
+			this.sendError(w, http.StatusBadRequest, "Missing single file for upload")
+			return
+		}
+
+		file, err := fh[0].Open()
+		if err != nil {
+			this.sendError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		key := vars["key"]
+		err = this.PutData(cid, key, this.Ident, file)
+		if err != nil {
+			this.sendError(w, http.StatusBadRequest, err.Error())
+		}
+		break
 	}
 }
 

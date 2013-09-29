@@ -75,3 +75,7 @@ func TestLink(t *testing.T) {
 	alice.Stop()
 	bob.Stop()
 }
+
+func TestClose(t *testing.T) {
+
+}

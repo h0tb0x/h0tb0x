@@ -1,35 +1,67 @@
 <div class="panel panel-default">
-	<div class="panel-heading">Profile - {{info.name || "Anonymous"}}</div>
+	<div class="panel-heading">Self</div>
 	<div class="panel-body">
 		<form class="form-horizontal" role="form">
 			<div class="form-group">
-				<label class="col-lg-2 control-label">Name</label>
-				<div class="col-lg-10">
-					<input class="form-control" placeholder="nickname" ng-model="info.name" ng-change="info.$save()">
-				</div>
-			</div>
-			<div class="form-group">
-				<label class="col-lg-2 control-label">ID</label>
-				<div class="col-lg-10">
+				<label class="col-lg-4 control-label">ID</label>
+				<div class="col-lg-6">
 					<p class="form-control-static">{{self.id}}</p>
 				</div>
 			</div>
 			<div class="form-group">
-				<label class="col-lg-2 control-label">Host</label>
-				<div class="col-lg-10">
+				<label class="col-lg-4 control-label">Host</label>
+				<div class="col-lg-6">
 					<p class="form-control-static">{{self.host}}</p>
 				</div>
 			</div>
 			<div class="form-group">
-				<label class="col-lg-2 control-label">Port</label>
-				<div class="col-lg-10">
+				<label class="col-lg-4 control-label">Port</label>
+				<div class="col-lg-6">
 					<p class="form-control-static">{{self.port}}</p>
 				</div>
 			</div>
 			<div class="form-group">
-				<label class="col-lg-2 control-label">Personal Collection</label>
-				<div class="col-lg-10">
+				<label class="col-lg-4 control-label">Private Collection</label>
+				<div class="col-lg-6">
 					<p class="form-control-static"><a href="#/collections/{{self.selfCid}}">{{self.selfCid}}</a></p>
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-lg-4 control-label">Public Collection</label>
+				<div class="col-lg-6">
+					<p class="form-control-static"><a href="#/collections/{{private.publicCid}}">{{private.publicCid}}</a></p>
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-lg-4 control-label">Passport</label>
+				<div class="col-lg-6">
+					<pre class="form-control-static">{{self.passport}}</pre>
+				</div>
+			</div>
+		</form>
+	</div>
+</div>
+
+<div class="panel panel-default">
+	<div class="panel-heading">Profile - {{public.name || "Anonymous"}}</div>
+	<div class="panel-body">
+		<form class="form-horizontal" role="form">
+			<div class="form-group">
+				<label class="col-lg-4 control-label">Name</label>
+				<div class="col-lg-6">
+					<input class="form-control" placeholder="nickname" ng-model="public.name" ng-change="savePublic()">
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-lg-4 control-label">Picture</label>
+				<div class="col-lg-6">
+					<input type="file" class="form-control" placeholder="Select a file" ng-file-select="onFileSelect($files)">
+				</div>
+			</div>
+			<div class="form-group">
+				<label class="col-lg-4 control-label"></label>
+				<div class="col-lg-6">
+					<img ng-src="{{pictureUrl}}" width="539px" />
 				</div>
 			</div>
 		</form>
