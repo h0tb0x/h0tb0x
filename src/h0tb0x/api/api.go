@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -10,7 +9,6 @@ import (
 	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
 	"h0tb0x/transfer"
-	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -274,16 +272,18 @@ func (this *ApiMgr) putFriend(w http.ResponseWriter, req *http.Request) {
 }
 
 func (this *ApiMgr) postFriends(w http.ResponseWriter, req *http.Request) {
-	// Grab whole post as a string
-	var buf bytes.Buffer
-	io.Copy(&buf, req.Body)
-	json := &SelfJson{Passport: string(buf.Bytes())}
-
-	// Apply it
-	this.doPutFriend(w, req, json)
+	// Get Json
+	var json *SelfJson
+	if !this.decodeJsonBody(w, req, &json) {
+		return
+	}
+	friend := this.doPutFriend(w, req, json)
+	if friend != nil {
+		this.sendJson(w, friend)
+	}
 }
 
-func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *SelfJson) {
+func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *SelfJson) *FriendJson {
 	var fp *crypto.Digest
 	var rendezvous string
 
@@ -292,11 +292,11 @@ func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *
 		// If Passport decodes, validate consistency
 		if json.Id != "" && json.Id != fp.String() {
 			this.sendError(w, http.StatusBadRequest, "Friend ID's are inconsistent")
-			return
+			return nil
 		}
 		if json.Rendezvous != "" && json.Rendezvous != rendezvous {
 			this.sendError(w, http.StatusBadRequest, "Rendezvous addresses are inconsistent")
-			return
+			return nil
 		}
 	} else {
 		// If not, try getting the fields from other places
@@ -304,13 +304,13 @@ func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *
 		err = transfer.DecodeString(json.Id, &fp)
 		if err != nil || rendezvous == "" {
 			this.sendError(w, http.StatusBadRequest, "Missing required fields")
-			return
+			return nil
 		}
 	}
 
 	if fp.String() == this.Ident.Public().Fingerprint().String() {
 		this.sendError(w, http.StatusBadRequest, "Can not friend self")
-		return
+		return nil
 	}
 
 	// Now validate the public key if it exist
@@ -319,7 +319,7 @@ func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *
 		err = transfer.DecodeString(json.PublicKey, &pubkey)
 		if err != nil || pubkey.Fingerprint().String() != fp.String() {
 			this.sendError(w, http.StatusBadRequest, "Public key is inconsitent")
-			return
+			return nil
 		}
 	}
 
@@ -339,6 +339,18 @@ func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *
 	//if (pubkey != nil) {
 	//	this.AddPublicKey(fp, pubkey)
 	//}
+
+	json.Id = fp.String()
+	json.Rendezvous = rendezvous
+	result := &FriendJson{
+		SelfJson: *json,
+		SendCid:  "",
+		RecvCid:  "",
+	}
+	myFp := this.Ident.Public().Fingerprint()
+	// FIXME: how do we get pubkey to be passed in to populateFriend()?
+	this.populateFriend(result, myFp, fp, nil)
+	return result
 }
 
 func (this *ApiMgr) deleteFriend(w http.ResponseWriter, req *http.Request) {
@@ -477,6 +489,7 @@ func (this *ApiMgr) deleteWriter(w http.ResponseWriter, req *http.Request) {
 func (this *ApiMgr) postInvite(w http.ResponseWriter, req *http.Request) {
 	var invite InviteJson
 	if !this.decodeJsonBody(w, req, &invite) {
+		this.sendError(w, http.StatusBadRequest, "Invalid invitation request")
 		return
 	}
 	var fp *crypto.Digest
@@ -488,7 +501,9 @@ func (this *ApiMgr) postInvite(w http.ResponseWriter, req *http.Request) {
 	this.Log.Printf("Processing an invite %s:%s:%v", invite.Cid, invite.Friend, invite.Remove)
 	if !this.Subscribe(fp, invite.Cid, !invite.Remove) {
 		this.sendError(w, http.StatusBadRequest, "Invalid friend Id")
+		return
 	}
+	this.sendJson(w, "OK")
 }
 
 func (this *ApiMgr) getData(w http.ResponseWriter, req *http.Request) {
