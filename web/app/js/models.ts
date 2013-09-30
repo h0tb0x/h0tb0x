@@ -24,6 +24,7 @@ module App {
 	export interface IFriend extends ISelf {
 		name: string;
 		publicCid: string;
+		pictureUrl: string;
 		recvCid: string;
 		sendCid: string;
 	}

@@ -60,11 +60,11 @@ module App {
 		}
 
 		public resolveProfile(friend: IFriend) {
-			this.$log.info("read friend[%s] inbox[%s]", friend.id, friend.recvCid);
 			this.Profile.get({
 				cid: friend.recvCid
 			}, (ref: IProfileRef) => { // success
-				this.$log.info("do invite");
+				var now = new Date().getTime();
+				friend.pictureUrl = '/api/collections/'+ref.publicCid+'/data/picture'+'#'+now;
 				var invite = <ICollectionInvite> new this.Invite();
 				invite.cid = friend.publicCid = ref.publicCid;
 				invite.friend = friend.id;
@@ -77,7 +77,6 @@ module App {
 		}
 
 		private loadProfile(friend: IFriend) {
-			this.$log.info("read friend profile");
 			this.Profile.get({
 				cid: friend.publicCid
 			}, (profile: IPublicProfile) => {

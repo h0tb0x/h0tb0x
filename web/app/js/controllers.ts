@@ -11,8 +11,6 @@ module App {
 	}
 
 	export class MainCtrl {
-		pictureUrl: string = '/api/collections/:cid/data/picture';
-
 		public injection(): any[] {
 			return [
 				'$log',
@@ -58,7 +56,8 @@ module App {
 		}
 
 		updatePicture() {
-			this.$scope.pictureUrl = this.pictureUrl.replace(':cid', this.$scope.publicCid) + '#' + new Date().getTime();
+			var now = new Date().getTime();
+			this.$scope.pictureUrl = '/api/collections/'+this.$scope.publicCid+'/data/picture'+'#'+now;
 		}
 	}
 
@@ -130,7 +129,6 @@ module App {
 		public injection(): any[] {
 			return [
 				'$scope',
-				'$timeout',
 				'AppService',
 				'SelfResource',
 				'FriendResource',
@@ -143,7 +141,6 @@ module App {
 
 		constructor(
 			private $scope: IFriendListScope, 
-			private $timeout: ng.ITimeoutService, 
 			private app: AppService, 
 			private Self: IResourceClass,
 			private Friend: IResourceClass,
@@ -199,17 +196,21 @@ module App {
 			return [
 				'$scope',
 				'$routeParams',
+				'AppService',
 				'FriendResource',
 				FriendDetailCtrl
 			]
 		}
 
 		constructor(
-			$scope: IFriendDetailScope, 
-			$routeParams: any, 
-			Friend: IResourceClass) {
+			private $scope: IFriendDetailScope, 
+			private $routeParams: any, 
+			private app: AppService, 
+			private Friend: IResourceClass) {
 			$scope.fp = $routeParams.fp;
-			$scope.friend = Friend.get({fp: $scope.fp});
+			$scope.friend = Friend.get({fp: $scope.fp}, (friend: IFriend) => {
+				this.app.resolveProfile(friend);
+			});
 		}
 	}
 }
