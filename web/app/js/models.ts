@@ -13,16 +13,17 @@ module App {
 		publicKey: string;
 	}
 
-	export interface IPrivateProfile extends ng.resource.IResource {
+	export interface IProfileRef extends ng.resource.IResource {
 		publicCid: string;
 	}
 
 	export interface IPublicProfile extends ng.resource.IResource {
 		name: string;
-		created: number;
 	}
 
 	export interface IFriend extends ISelf {
+		name: string;
+		publicCid: string;
 		recvCid: string;
 		sendCid: string;
 	}
@@ -38,8 +39,8 @@ module App {
 	}
 
 	export interface ICollectionInvite extends ng.resource.IResource {
-		id: string;
-		fp: string;
+		cid: string;
+		friend: string;
 		remove: boolean;
 	}
 }

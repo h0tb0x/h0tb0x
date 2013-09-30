@@ -1,8 +1,9 @@
 'use strict';
 
 describe('App', function() {
-	var mockInitService;
+	var mockAppService;
 	var httpBackend;
+	var rootScope;
 
 	beforeEach(function() {
 		this.addMatchers({
@@ -14,17 +15,17 @@ describe('App', function() {
 
 	beforeEach(function() {
 		module('App', function($provide) {
-			mockInitService = {
-				load: function() {
-					console.log('hi');
-				}
+			mockAppService = {
+				load: function() {}
 			}
-			spyOn(mockInitService, 'load');
-			$provide.value('InitService', mockInitService);
+			spyOn(mockAppService, 'load');
+			$provide.value('AppService', mockAppService);
 		});
 
-		inject(function($httpBackend) {
+		inject(function($httpBackend, $rootScope) {
 			httpBackend = $httpBackend;
+			rootScope = $rootScope;
+			rootScope.publicCid = 'PUB_CID';
 		});
 	});
 
@@ -34,7 +35,7 @@ describe('App', function() {
 	});
 
 	it('should load self at startup', function() {
-		expect(mockInitService.load).toHaveBeenCalled();
+		expect(mockAppService.load).toHaveBeenCalled();
 	});
 
 	describe('controllers', function() {
@@ -42,20 +43,57 @@ describe('App', function() {
 		describe('FriendListCtrl', function() {
 			var scope, ctrl;
 			var friends = [
-				{ id: '1' },
-				{ id: '2' }
+				{ id: '1', recvCid: 'R1', sendCid: 'S1' },
+				{ id: '2', recvCid: 'R2', sendCid: 'S2' }
 			];
 
+			var profiles = {
+				R1: { publicCid: 'PUB_CID_1' },
+				R2: { publicCid: 'PUB_CID_2' }
+			}
+
 			beforeEach(inject(function($rootScope, $controller) {
-				httpBackend.expectGET('/api/friends').respond(friends);
 				scope = $rootScope.$new();
+				httpBackend.whenGET('/api/friends').respond(friends);
+				angular.forEach(profiles, function(value, key) {
+					httpBackend.whenGET('/api/collections/'+key+'/data/profile').respond(value);
+				});
+				httpBackend.expectGET('/api/friends');
 				ctrl = $controller('FriendListCtrl', {$scope: scope});
+				expect(scope.friends).toEqual([]);
+				httpBackend.flush();
 			}));
 
 			it('should have 2 items from xhr', function() {
-				expect(scope.friends).toEqual([]);
-				httpBackend.flush();
 				expect(scope.friends).toEqualData(friends);
+			});
+
+			it('should handle adding new friends', function() {
+				var newFriend = {
+					id: 'NEW_FP',
+					recvCid: 'RECV_CID',
+					sendCid: 'SEND_CID'
+				};
+				scope.recvBlob = 'RECV_BLOB';
+
+				httpBackend.expectPOST('/api/friends', {
+					passport: scope.recvBlob
+				}).respond(newFriend);
+				friends.push(newFriend);
+
+				httpBackend.expectGET('/api/friends').respond(friends);
+				httpBackend.expectPOST('/api/invites', {
+					id: rootScope.publicCid, 
+					fp: newFriend.id
+				}).respond(200);
+				httpBackend.expectPUT('/api/collections/'+newFriend.sendCid+'/data/profile', {
+					publicCid: rootScope.publicCid
+				}).respond(200);
+				httpBackend.expectGET('/api/collections/'+newFriend.recvCid+'/data/profile')
+					.respond(200);
+
+				ctrl.onAddFriend();
+				httpBackend.flush();
 			});
 		});
 

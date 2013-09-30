@@ -35,7 +35,7 @@
 			<div class="form-group">
 				<label class="col-lg-4 control-label">Public Collection</label>
 				<div class="col-lg-6">
-					<p class="form-control-static"><a href="#/collections/{{private.publicCid}}">{{private.publicCid}}</a></p>
+					<p class="form-control-static"><a href="#/collections/{{publicCid}}">{{publicCid}}</a></p>
 				</div>
 			</div>
 			<div class="form-group">
@@ -55,13 +55,13 @@
 </div>
 
 <div class="panel panel-default">
-	<div class="panel-heading">Profile - {{public.name || "Anonymous"}}</div>
+	<div class="panel-heading">Profile - {{profile.name || "Anonymous"}}</div>
 	<div class="panel-body">
 		<form class="form-horizontal" role="form">
 			<div class="form-group">
 				<label class="col-lg-4 control-label">Name</label>
 				<div class="col-lg-6">
-					<input class="form-control" placeholder="nickname" ng-model="public.name" ng-change="savePublic()">
+					<input class="form-control" placeholder="nickname" ng-model="profile.name" ng-change="saveProfile()">
 				</div>
 			</div>
 			<div class="form-group">

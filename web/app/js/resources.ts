@@ -17,21 +17,6 @@ module App {
 		]
 	}
 
-	export function PrivateResource(): any[] {
-		return [ '$rootScope', '$resource',
-			function(
-				$rootScope: IRootScope, 
-				$resource: ng.resource.IResourceService
-			): ng.resource.IResourceClass {
-				return $resource('/api/collections/:sid/data/profile', {
-					sid: $rootScope.self.selfCid
-				}, {
-					save: { method: 'PUT' }
-				})
-			}
-		]
-	}
-
 	export function ProfileResource(): any[] {
 		return [ '$resource',
 			function(
@@ -71,6 +56,16 @@ module App {
 				$resource: ng.resource.IResourceService
 			): ng.resource.IResourceClass {
 				return $resource('/api/collections/:cid/data/:path');
+			}
+		]
+	}
+
+	export function CollectionInviteResource(): any[] {
+		return [ '$resource',
+			function(
+				$resource: ng.resource.IResourceService
+			): ng.resource.IResourceClass {
+				return $resource('/api/invites');
 			}
 		]
 	}

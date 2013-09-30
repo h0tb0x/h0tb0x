@@ -5,6 +5,7 @@ module App {
 
 	export interface IRootScope extends ng.IScope {
 		self: ISelf;
+		publicCid: string;
 	}
 
 	export interface IHttpService extends ng.IHttpService {
@@ -50,25 +51,24 @@ module App {
 		.controller('FriendDetailCtrl', FriendDetailCtrl.prototype.injection())
 
 		// services
-		.service('InitService', InitService.prototype.injection())
+		.service('AppService', AppService.prototype.injection())
 
 		// resources
 		.factory('SelfResource', SelfResource())
-		.factory('PrivateResource', PrivateResource())
 		.factory('ProfileResource', ProfileResource())
 		.factory('CollectionResource', CollectionResource())
 		.factory('CollectionWriterResource', CollectionWriterResource())
 		.factory('CollectionDataResource', CollectionDataResource())
+		.factory('CollectionInviteResource', CollectionInviteResource())
 		.factory('FriendResource', FriendResource())
 
 		// initialization
-		.run(['$log', '$rootScope', 'InitService',
+		.run(['$log', 'AppService',
 			function(
 				$log: ng.ILogService, 
-				$rootScope: IRootScope, 
-				init: InitService
+				app: AppService
 			) {
-				init.load();
+				app.load();
 			}
 		])
 }

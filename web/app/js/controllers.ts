@@ -3,17 +3,14 @@
 module App {
 	'use strict';
 
-	export interface IMainScope extends ng.IScope {
-		self: ISelf;
-		private: IPrivateProfile;
-		public: IPublicProfile;
-		savePublic: Function;
+	export interface IMainScope extends IRootScope {
+		profile: IPublicProfile;
+		saveProfile: Function;
 		onFileSelect: Function;
 		pictureUrl: string;
 	}
 
 	export class MainCtrl {
-		publicCid: string;
 		pictureUrl: string = '/api/collections/:cid/data/picture';
 
 		public injection(): any[] {
@@ -22,9 +19,7 @@ module App {
 				'$scope',
 				'$http',
 				'SelfResource',
-				'PrivateResource',
 				'ProfileResource',
-				'CollectionResource',
 				MainCtrl,
 			]
 		}
@@ -34,42 +29,21 @@ module App {
 			private $scope: IMainScope,
 			private $http: IHttpService,
 			private Self: IResourceClass,
-			private Private: IResourceClass,
-			private Profile: IResourceClass,
-			private Collection: IResourceClass
+			private Profile: IResourceClass
 		) {
 			$scope.self = <ISelf> Self.get();
-			$scope.private = <IPrivateProfile> Private.get(() => {
-				this.publicCid = $scope.private.publicCid;
-				if (this.publicCid) {
-					this.loadPublic();
-				} else {
-					this.newPrivate();
-				}
-			}, (data, status, headers, config) => {
-				this.newPrivate();
-			});
-
-			$scope.savePublic = () => this.savePublic();
+			$scope.saveProfile = () => this.saveProfile();
 			$scope.onFileSelect = ($files) => this.onFileSelect($files);
-		}
-
-		newPrivate() {
-			var collection = <ICollection> new this.Collection();
-			collection.$save(() => {
-				this.$scope.private.publicCid = this.publicCid = collection.id;
-				this.$scope.private.$save();
-				this.loadPublic();
+			$scope.$watch('publicCid', () => {
+				if ($scope.publicCid) {
+					$scope.profile = <IPublicProfile> Profile.get({cid: $scope.publicCid});
+					this.updatePicture();
+				}
 			});
 		}
 
-		loadPublic() {
-			this.updatePicture();
-			this.$scope.public = <IPublicProfile> this.Profile.get({cid: this.publicCid});
-		}
-
-		savePublic() {
-			this.$scope.public.$save({cid: this.publicCid});
+		saveProfile() {
+			this.$scope.profile.$save({cid: this.$scope.publicCid});
 		}
 
 		onFileSelect($files) {
@@ -84,7 +58,7 @@ module App {
 		}
 
 		updatePicture() {
-			this.$scope.pictureUrl = this.pictureUrl.replace(':cid', this.publicCid) + '#' + new Date().getTime();
+			this.$scope.pictureUrl = this.pictureUrl.replace(':cid', this.$scope.publicCid) + '#' + new Date().getTime();
 		}
 	}
 
@@ -144,7 +118,7 @@ module App {
 		}
 	}
 
-	export interface IFriendListScope extends ng.IScope {
+	export interface IFriendListScope extends IRootScope {
 		friends: ng.resource.IResource;
 		recvBlob: string;
 		recvBlobStatus: string;
@@ -156,37 +130,62 @@ module App {
 		public injection(): any[] {
 			return [
 				'$scope',
-				'$http',
+				'$timeout',
+				'AppService',
 				'SelfResource',
 				'FriendResource',
+				'CollectionDataResource',
+				'CollectionInviteResource',
+				'ProfileResource',
 				FriendListCtrl
 			]
 		}
 
 		constructor(
 			private $scope: IFriendListScope, 
-			private $http: IHttpService,
+			private $timeout: ng.ITimeoutService, 
+			private app: AppService, 
 			private Self: IResourceClass,
-			private Friend: IResourceClass
+			private Friend: IResourceClass,
+			private CollectionData: IResourceClass,
+			private Invite: IResourceClass,
+			private Profile: IResourceClass
 		) {
 			this.load();
 			$scope.onAddFriend = () => this.onAddFriend();
 		}
 
 		load() {
-			this.$scope.friends = this.Friend.query();
+			this.$scope.friends = this.Friend.query((friends: IFriend[]) => {
+				angular.forEach(friends, (friend: IFriend) => {
+					this.app.resolveProfile(friend);
+				});
+			});
 		}
 
 		onAddFriend() {
-			var error = (data, status?, headers?, config?) => {
-				this.$scope.recvBlobStatus = 'has-error';
-				this.$scope.recvBlobError = data;
-			}
-
-			this.$http.post('/api/friends', this.$scope.recvBlob).success(() => {
+			var friend = <IFriend> new this.Friend();
+			friend.passport = this.$scope.recvBlob;
+			friend.$save((friend: IFriend) => {
 				this.load();
 				this.$scope.recvBlob = "";
-			}).error(error);
+				this.shareCollection(friend);
+			}, (result) => {
+				this.$scope.recvBlobStatus = 'has-error';
+				this.$scope.recvBlobError = result.data;
+			});
+		}
+
+		shareCollection(friend: IFriend) {
+			console.log(friend);
+			var invite = <ICollectionInvite> new this.Invite();
+			invite.cid = this.$scope.publicCid;
+			invite.friend = friend.id;
+			invite.$save();
+
+			var sendRef = <IProfileRef> new this.Profile();
+			sendRef.publicCid = this.$scope.publicCid;
+			sendRef.$save({cid: friend.sendCid});
 		}
 	}
 
