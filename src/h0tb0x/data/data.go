@@ -418,6 +418,7 @@ func (this *DataMgr) GetData(topic string, key string, stream io.Writer) error {
 	this.lock.Lock()
 	obj := this.maybeGetObj(okey)
 	if obj == nil || obj.State != DSLocal {
+		this.lock.Unlock()
 		return fmt.Errorf("File not local yet")
 	}
 	obj.Holds++
