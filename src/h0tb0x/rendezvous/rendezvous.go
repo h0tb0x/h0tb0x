@@ -49,7 +49,7 @@ func (this *RecordJson) CheckSignature() bool {
 	}
 	fp := pub.Fingerprint().String()
 	if fp != this.Fingerprint {
-		fmt.Printf("Error: CheckSignature fingerprint mismatch: %s\n", this.Fingerprint().String())
+		fmt.Printf("Error: CheckSignature fingerprint mismatch: %s\n", this.Fingerprint())
 		return false
 	}
 	digest := crypto.HashOf(this.Version, this.Host, this.Port)
