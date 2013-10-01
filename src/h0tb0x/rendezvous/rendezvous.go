@@ -39,18 +39,22 @@ func (this *RecordJson) CheckSignature() bool {
 	var sig *crypto.Signature
 	err := transfer.DecodeString(this.PublicKey, &pub)
 	if err != nil {
+		fmt.Printf("Error: CheckSignature failed to decode PublicKey: %s\n", this.PublicKey)
 		return false
 	}
 	err = transfer.DecodeString(this.Signature, &sig)
 	if err != nil {
+		fmt.Printf("Error: CheckSignature failed to decode Signature: %s\n", this.Signature)
 		return false
 	}
 	fp := pub.Fingerprint().String()
 	if fp != this.Fingerprint {
+		fmt.Printf("Error: CheckSignature fingerprint mismatch: %s\n", this.Fingerprint)
 		return false
 	}
 	digest := crypto.HashOf(this.Version, this.Host, this.Port)
 	if !pub.Verify(digest, sig) {
+		fmt.Printf("Error: CheckSignature failed to verify signature\n")
 		return false
 	}
 	return true
