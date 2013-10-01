@@ -103,14 +103,17 @@ func newH0tb0x(dir string) {
 	}
 	pass1, err := gopass.GetPass("Please enter the new password for your h0tb0x: ")
 	if err != nil {
+		os.RemoveAll(dir)
 		fatal("", err)
 	}
 	pass2, err := gopass.GetPass("Re-enter your password: ")
 	if err != nil {
+		os.RemoveAll(dir)
 		fatal("", err)
 	}
 	if pass1 != pass2 {
 		fmt.Println("Passwords don't match, go away")
+		os.RemoveAll(dir)
 		return
 	}
 	fmt.Printf("Generating default config, you may want to check %s to make sure values are correct\n", cfgFilename)
@@ -124,11 +127,13 @@ func newH0tb0x(dir string) {
 	}
 	configFile, err := os.Create(cfgFilename)
 	if err != nil {
+		os.RemoveAll(dir)
 		fatal("", err)
 	}
 	enc := json.NewEncoder(configFile)
 	err = enc.Encode(&config)
 	if err != nil {
+		os.RemoveAll(dir)
 		fatal("", err)
 	}
 	configFile.Close()
@@ -138,10 +143,12 @@ func newH0tb0x(dir string) {
 	ident := crypto.NewSecretIdentity(pass1)
 	identFile, err := os.Create(idFilename)
 	if err != nil {
+		os.RemoveAll(dir)
 		fatal("", err)
 	}
 	_, err = identFile.Write(transfer.AsBytes(ident.Lock()))
 	if err != nil {
+		os.RemoveAll(dir)
 		fatal("", err)
 	}
 	identFile.Close()
