@@ -286,7 +286,7 @@ func (this *DataMgr) onDataGet(who int, ident *crypto.Digest, in io.Reader, out 
 	obj := this.maybeGetObj(key)
 	if obj == nil || obj.State != DSLocal {
 		this.lock.Unlock()
-		fmt.Errorf("Unknown blob: %s", key)
+		return fmt.Errorf("Unknown blob: %s", key)
 	}
 	obj.Holds++
 	this.writeObj(obj)
