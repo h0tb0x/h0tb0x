@@ -19,7 +19,7 @@ go: deps
 	go fmt h0tb0x/...
 	go install h0tb0x
 
-test: build
+test: go
 	go test h0tb0x/transfer
 	go test h0tb0x/crypto
 	go test h0tb0x/link
