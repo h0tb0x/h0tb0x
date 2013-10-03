@@ -77,6 +77,7 @@ func GetRendezvous(addr string, fingerprint string) (*RecordJson, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Invalid http return: %d - %s", resp.StatusCode, resp.Status)
 	}
@@ -166,19 +167,34 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	recno := -1
-	row := this.database.SingleQuery("SELECT version FROM Rendezvous WHERE fingerprint = ?", record.Fingerprint)
+	row := this.database.SingleQuery(`
+		SELECT version 
+		FROM Rendezvous 
+		WHERE fingerprint = ?`, record.Fingerprint)
 	exists := mydb.MaybeScan(row, &recno)
 	if record.Version <= recno {
 		sendError(w, http.StatusConflict, "Record too old")
 		return
 	}
 	if exists {
-		this.database.Exec("UPDATE Rendezvous SET version = ?, host = ?, port = ?, signature = ?",
+		this.database.Exec(`
+			UPDATE Rendezvous 
+			SET 
+				version = ?, 
+				host = ?, 
+				port = ?, 
+				signature = ?`,
 			record.Version, record.Host, record.Port, record.Signature)
 	} else {
-		this.database.Exec(`INSERT INTO Rendezvous 
-				(fingerprint, public_key, version, host, port, signature) 
-				VALUES (?, ?, ?, ?, ?, ?)`,
+		this.database.Exec(`
+			INSERT INTO Rendezvous (
+				fingerprint, 
+				public_key, 
+				version, 
+				host, 
+				port, 
+				signature
+			) VALUES (?, ?, ?, ?, ?, ?)`,
 			record.Fingerprint, record.PublicKey, record.Version,
 			record.Host, record.Port, record.Signature)
 	}
@@ -188,8 +204,15 @@ func (this *RendezvousMgr) onGet(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	key := vars["key"]
 	fmt.Printf("GET request for key %s\n", key)
-	row := this.database.SingleQuery(`SELECT public_key, version, host, port, signature
-				FROM Rendezvous WHERE fingerprint = ?`, key)
+	row := this.database.SingleQuery(`
+		SELECT 
+			public_key, 
+			version, 
+			host, 
+			port, 
+			signature
+		FROM Rendezvous 
+		WHERE fingerprint = ?`, key)
 	record := &RecordJson{Fingerprint: key}
 	if !mydb.MaybeScan(row, &record.PublicKey, &record.Version, &record.Host, &record.Port, &record.Signature) {
 		sendError(w, http.StatusNotFound, "Unknown Key")
