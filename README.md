@@ -1,6 +1,6 @@
-# `h0tb0x`
+# h0tb0x
 
-`h0tb0x` is a socially distributed file system.
+h0tb0x is a socially distributed file system.
 
 ## Development Environment
 
@@ -34,7 +34,7 @@ Add this to your `$HOME/.profile`:
 export PATH=$PATH:/usr/local/go/bin
 ```
 
-## Building `h0tb0x`
+## Building h0tb0x
 
 A `Makefile` is included and is used in the traditional way:
 ```
@@ -57,7 +57,7 @@ make clean
 make
 ```
 
-## Running `h0tb0x`
+## Running h0tb0x
 
 The final binary lives in the `bin` directory. 
 Today, it runs in the foreground, eventually it should run as a daemon:
