@@ -13,8 +13,6 @@ module.exports = function (config) {
 
 		frameworks: ['jasmine'],
 
-		autoWatch: true,
-
 		browsers: ['Chrome'],
 
 		junitReporter: {

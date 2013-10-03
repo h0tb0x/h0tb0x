@@ -20,7 +20,7 @@ module.exports = function(grunt) {
 	});
 
 	grunt.registerTask('default', ['tsd-pkg', 'ts:build']);
-	grunt.registerTask('watch', ['tsd-pkg', 'ts:dev']);
+	grunt.registerTask('watch', ['ts:dev']);
 
 	grunt.registerTask('tsd-pkg', 'Install TypeScript definitions specified in package.json', function() {
 		this.requiresConfig('pkg');
