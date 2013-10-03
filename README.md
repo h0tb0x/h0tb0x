@@ -22,7 +22,7 @@ apt-get update
 apt-get install git-flow nodejs
 ```
 
-Download and build go 1.1.2 from source (assuming you have a 64-bit machine):
+Download and install prebuilt Linux binaries (assuming you have a 64-bit machine):
 ```
 apt-get install wget build-essential
 wget https://go.googlecode.com/files/go1.1.2.linux-amd64.tar.gz
