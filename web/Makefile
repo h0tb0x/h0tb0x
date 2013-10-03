@@ -29,6 +29,5 @@ watch:
 	$(NPM_BIN)/grunt watch
 
 test:
-	$(NPM_BIN)/karma start etc/karma.conf.js --single-run
-	# TODO: launch h0tb0x and then run this
-#	$(NPM_BIN)/karma start etc/karma-e2e.conf.js
+	$(NPM_BIN)/karma start etc/karma.conf.js --single-run --browsers PhantomJS
+	$(NPM_BIN)/karma start etc/karma-e2e.conf.js --browsers PhantomJS
