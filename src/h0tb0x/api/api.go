@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
+	"github.com/h0tb0x/mux"
 	"h0tb0x/crypto"
 	"h0tb0x/data"
 	"h0tb0x/rendezvous"

@@ -2,7 +2,6 @@ package crypto
 
 import (
 	"bytes"
-	"code.google.com/p/go.crypto/scrypt"
 	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
@@ -14,6 +13,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"fmt"
+	"github.com/h0tb0x/go.crypto/scrypt"
 	"h0tb0x/transfer"
 	"hash"
 	"io"

@@ -10,8 +10,8 @@ endif
 all: go web
 
 deps:
-	go get github.com/jteeuwen/go-bindata
-	go install github.com/jteeuwen/go-bindata
+	go get github.com/h0tb0x/go-bindata
+	go install github.com/h0tb0x/go-bindata
 	go get h0tb0x
 
 go: deps
