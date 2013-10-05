@@ -48,19 +48,19 @@ type Config struct {
 	Rendezvous string // Rendezvous server to use
 }
 
-func GetExternalAddr(port uint16) (net.IP, uint16) {
+func GetExternalAddr(port uint16) (net.IP, uint16, error) {
 	str, err := GetGateway()
 	fmt.Printf("Gateway Address: %q\n", str)
 
 	gateway := net.ParseIP(str)
 	if gateway == nil {
-		panic(fmt.Errorf("Invalid gateway"))
+		return nil, 0, fmt.Errorf("Invalid gateway")
 	}
 
 	nat := natpmp.NewClient(gateway)
 	extaddr, err := nat.GetExternalAddress()
 	if err != nil {
-		panic(err)
+		return nil, 0, err
 	}
 	ip := net.IPv4(
 		extaddr.ExternalIPAddress[0],
@@ -72,11 +72,11 @@ func GetExternalAddr(port uint16) (net.IP, uint16) {
 
 	res, err := nat.AddPortMapping("tcp", int(port), 0, PortMapLifetime)
 	if err != nil {
-		panic(err)
+		return nil, 0, err
 	}
 
 	fmt.Printf("External Port: %v\n", res.MappedExternalPort)
-	return ip, res.MappedExternalPort
+	return ip, res.MappedExternalPort, nil
 }
 
 func fatal(msg string, err error) {
@@ -228,7 +228,10 @@ func main() {
 	var extPort uint16
 	if config.ExtHost == "" || config.ExtPort == 0 {
 		fmt.Printf("Using nat-pmp\n")
-		extHost, extPort = GetExternalAddr(config.LinkPort)
+		extHost, extPort, err = GetExternalAddr(config.LinkPort)
+		if err != nil {
+			panic(err)
+		}
 	} else {
 		extHost = net.ParseIP(config.ExtHost)
 		if extHost == nil {
@@ -269,7 +272,12 @@ func main() {
 				case <-tchan:
 					break
 				}
-				api.SetExt(GetExternalAddr(config.LinkPort))
+				extHost, extPort, err = GetExternalAddr(config.LinkPort)
+				if err != nil {
+					log.Printf("GetExternalAddr failed: %v", err)
+					continue
+				}
+				api.SetExt(extHost, extPort)
 			}
 		}()
 	}
