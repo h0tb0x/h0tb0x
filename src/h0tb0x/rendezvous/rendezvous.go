@@ -21,8 +21,6 @@ const (
 	dbFilename = "rendezvous.db"
 )
 
-var mydb *db.Database
-
 // Represents a record that can be published into the rendezvous server
 type RecordJson struct {
 	Fingerprint string
@@ -71,7 +69,10 @@ func (this *RecordJson) Sign(private *crypto.SecretIdentity) {
 	this.Signature = transfer.AsString(sig)
 }
 
-// Talks to a rendezvous server at addr and gets a record.  Also validated signature.  Returns nil on error.  TODO: timeout support
+// Talks to a rendezvous server at addr and gets a record.
+// Also validated signature.
+// Returns nil on error.
+// TODO: timeout support
 func GetRendezvous(addr string, fingerprint string) (*RecordJson, error) {
 	resp, err := http.Get("http://" + addr + "/" + fingerprint)
 	if err != nil {
@@ -93,7 +94,9 @@ func GetRendezvous(addr string, fingerprint string) (*RecordJson, error) {
 	return rec, nil
 }
 
-// Puts a rendezvous record to the address in the record.  Presumes the record is signed.  TODO: timeout support
+// Puts a rendezvous record to the address in the record.
+// Presumes the record is signed.
+// TODO: timeout support
 func PutRendezvous(addr string, record *RecordJson) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -171,7 +174,7 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 		SELECT version 
 		FROM Rendezvous 
 		WHERE fingerprint = ?`, record.Fingerprint)
-	exists := mydb.MaybeScan(row, &recno)
+	exists := this.database.MaybeScan(row, &recno)
 	if record.Version <= recno {
 		sendError(w, http.StatusConflict, "Record too old")
 		return
@@ -214,7 +217,12 @@ func (this *RendezvousMgr) onGet(w http.ResponseWriter, req *http.Request) {
 		FROM Rendezvous 
 		WHERE fingerprint = ?`, key)
 	record := &RecordJson{Fingerprint: key}
-	if !mydb.MaybeScan(row, &record.PublicKey, &record.Version, &record.Host, &record.Port, &record.Signature) {
+	if !this.database.MaybeScan(row,
+		&record.PublicKey,
+		&record.Version,
+		&record.Host,
+		&record.Port,
+		&record.Signature) {
 		sendError(w, http.StatusNotFound, "Unknown Key")
 		return
 	}
