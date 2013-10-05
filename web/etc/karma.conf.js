@@ -13,7 +13,7 @@ module.exports = function (config) {
 
 		frameworks: ['jasmine'],
 
-		browsers: ['Chrome'],
+		browsers: ['PhantomJS'],
 
 		junitReporter: {
 			outputFile: 'test_out/unit.xml',

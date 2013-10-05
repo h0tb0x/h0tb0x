@@ -16,7 +16,8 @@ describe('App', function() {
 	beforeEach(function() {
 		module('App', function($provide) {
 			mockAppService = {
-				load: function() {}
+				load: function() {},
+				resolveProfile: function() {}
 			}
 			spyOn(mockAppService, 'load');
 			$provide.value('AppService', mockAppService);
@@ -83,14 +84,12 @@ describe('App', function() {
 
 				httpBackend.expectGET('/api/friends').respond(friends);
 				httpBackend.expectPOST('/api/invites', {
-					id: rootScope.publicCid, 
-					fp: newFriend.id
+					cid: rootScope.publicCid, 
+					friend: newFriend.id
 				}).respond(200);
 				httpBackend.expectPUT('/api/collections/'+newFriend.sendCid+'/data/profile', {
 					publicCid: rootScope.publicCid
 				}).respond(200);
-				httpBackend.expectGET('/api/collections/'+newFriend.recvCid+'/data/profile')
-					.respond(200);
 
 				ctrl.onAddFriend();
 				httpBackend.flush();
