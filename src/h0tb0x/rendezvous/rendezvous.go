@@ -17,6 +17,10 @@ import (
 	"time"
 )
 
+const (
+	dbFilename = "rendezvous.db"
+)
+
 // Represents a record that can be published into the rendezvous server
 type RecordJson struct {
 	Fingerprint string
@@ -87,8 +91,9 @@ func GetRendezvous(url, fingerprint string) (*RecordJson, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Invalid http return: %d - %s", resp.StatusCode, resp.Status)
 	}
+	dec := json.NewDecoder(resp.Body)
 	var rec *RecordJson
-	err = json.NewDecoder(resp.Body).Decode(&rec)
+	err = dec.Decode(&rec)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +297,11 @@ func Serve(port int, file string) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, os.Kill)
 
+	fmt.Println("Rendezvous server starting")
 	rendezvous.Run()
+	fmt.Println("Rendezvous server started")
 	<-ch
+	fmt.Println("Rendezvous server stopping")
 	rendezvous.Stop()
+	fmt.Println("Rendezvous server stopped")
 }
