@@ -17,10 +17,6 @@ import (
 	"time"
 )
 
-const (
-	dbFilename = "rendezvous.db"
-)
-
 // Represents a record that can be published into the rendezvous server
 type RecordJson struct {
 	Fingerprint string
@@ -91,9 +87,8 @@ func GetRendezvous(url, fingerprint string) (*RecordJson, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Invalid http return: %d - %s", resp.StatusCode, resp.Status)
 	}
-	dec := json.NewDecoder(resp.Body)
 	var rec *RecordJson
-	err = dec.Decode(&rec)
+	err = json.NewDecoder(resp.Body).Decode(&rec)
 	if err != nil {
 		return nil, err
 	}
@@ -158,8 +153,7 @@ func decodeJsonBody(w http.ResponseWriter, req *http.Request, out interface{}) b
 		sendError(w, http.StatusBadRequest, "Invalid content type")
 		return false
 	}
-	dec := json.NewDecoder(req.Body)
-	err := dec.Decode(out)
+	err := json.NewDecoder(req.Body).Decode(out)
 	if err != nil {
 		sendError(w, http.StatusBadRequest, "Unable to decode JSON")
 		return false
