@@ -17,10 +17,6 @@ import (
 	"time"
 )
 
-const (
-	dbFilename = "rendezvous.db"
-)
-
 // Represents a record that can be published into the rendezvous server
 type RecordJson struct {
 	Fingerprint string
