@@ -18,7 +18,7 @@ func NewTestNode(name string, port uint16) *DataMgr {
 	sync := sync.NewSyncMgr(link)
 	meta := meta.NewMetaMgr(sync)
 	data := NewDataMgr("/tmp/wtf/"+name, meta)
-	rendezvous.Publish("localhost:3030", base.Ident, "localhost", port)
+	rendezvous.Publish("http://localhost:3030", base.Ident, "localhost", port)
 
 	data.Run()
 	return data

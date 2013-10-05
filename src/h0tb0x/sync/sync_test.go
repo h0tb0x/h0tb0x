@@ -25,7 +25,7 @@ func NewTestNode(name string, port uint16) *TestNode {
 	base := base.NewBase(name, port)
 	link := link.NewLinkMgr(base)
 	sync := NewSyncMgr(link)
-	rendezvous.Publish("localhost:3030", base.Ident, "localhost", port)
+	rendezvous.Publish("http://localhost:3030", base.Ident, "localhost", port)
 
 	tn := &TestNode{
 		log:   base.Log,
