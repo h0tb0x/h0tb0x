@@ -65,6 +65,15 @@ func (this *RecordJson) Sign(private *crypto.SecretIdentity) {
 	this.Signature = transfer.AsString(sig)
 }
 
+func (this *RecordJson) dump() {
+	fmt.Printf("\tFingerprint: %q\n", this.Fingerprint)
+	fmt.Printf("\tPublicKey: %q\n", this.PublicKey)
+	fmt.Printf("\tVersion: %d\n", this.Version)
+	fmt.Printf("\tHost: %q\n", this.Host)
+	fmt.Printf("\tPort: %d\n", this.Port)
+	fmt.Printf("\tSignature: %q\n", this.Signature)
+}
+
 // Talks to a rendezvous server at addr and gets a record.
 // Also validated signature.
 // Returns nil on error.
@@ -78,12 +87,13 @@ func GetRendezvous(url, fingerprint string) (*RecordJson, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Invalid http return: %d - %s", resp.StatusCode, resp.Status)
 	}
-	dec := json.NewDecoder(resp.Body)
 	var rec *RecordJson
-	err = dec.Decode(&rec)
+	err = json.NewDecoder(resp.Body).Decode(&rec)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("GetRendezvous:\n")
+	rec.dump()
 	if !rec.CheckSignature() {
 		return nil, fmt.Errorf("Bad signature for record")
 	}
@@ -94,6 +104,8 @@ func GetRendezvous(url, fingerprint string) (*RecordJson, error) {
 // Presumes the record is signed.
 // TODO: timeout support
 func PutRendezvous(url string, record *RecordJson) error {
+	fmt.Printf("PutRendezvous:\n")
+	record.dump()
 	var buf bytes.Buffer
 	json.NewEncoder(&buf).Encode(&record)
 	req, err := http.NewRequest("PUT", url+"/"+record.Fingerprint, &buf)
@@ -158,6 +170,7 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 	if !decodeJsonBody(w, req, &record) {
 		return
 	}
+	record.dump()
 	if record.Fingerprint != key || !record.CheckSignature() {
 		sendError(w, http.StatusUnauthorized, "Unable to validate record")
 		return
@@ -219,6 +232,7 @@ func (this *RendezvousMgr) onGet(w http.ResponseWriter, req *http.Request) {
 		sendError(w, http.StatusNotFound, "Unknown Key")
 		return
 	}
+	record.dump()
 	sendJson(w, record)
 }
 

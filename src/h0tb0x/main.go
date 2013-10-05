@@ -241,7 +241,7 @@ func main() {
 	}
 
 	base := &base.Base{
-		Log:   log.New(os.Stderr, "h0tb0x", log.LstdFlags),
+		Log:   log.New(os.Stderr, "", log.LstdFlags),
 		Db:    thedb,
 		Ident: ident,
 		Port:  config.LinkPort,
