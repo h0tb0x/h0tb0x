@@ -153,8 +153,7 @@ func decodeJsonBody(w http.ResponseWriter, req *http.Request, out interface{}) b
 		sendError(w, http.StatusBadRequest, "Invalid content type")
 		return false
 	}
-	dec := json.NewDecoder(req.Body)
-	err := dec.Decode(out)
+	err := json.NewDecoder(req.Body).Decode(out)
 	if err != nil {
 		sendError(w, http.StatusBadRequest, "Unable to decode JSON")
 		return false
@@ -292,7 +291,11 @@ func Serve(port int, file string) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, os.Kill)
 
+	fmt.Println("Rendezvous server starting")
 	rendezvous.Run()
+	fmt.Println("Rendezvous server started")
 	<-ch
+	fmt.Println("Rendezvous server stopping")
 	rendezvous.Stop()
+	fmt.Println("Rendezvous server stopped")
 }
