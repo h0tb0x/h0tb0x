@@ -145,7 +145,7 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 
 func (this *LinkMgr) tryRendezvous(ra string, fp *crypto.Digest) *friendInfo {
 	this.Log.Printf("Doing Rendezvous lookup")
-	rec, err := rendezvous.GetRendezvous(ra, fp.String())
+	rec, err := rendezvous.GetRendezvous("http://"+ra, fp.String())
 
 	var fi *friendInfo
 	if err == nil {

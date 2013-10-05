@@ -3,30 +3,31 @@ package rendezvous
 import (
 	"h0tb0x/crypto"
 	"h0tb0x/transfer"
+	"io/ioutil"
+	"net/http/httptest"
 	"os"
 	"testing"
 )
 
 func TestRendezvous(t *testing.T) {
-	os.Remove("/tmp/rtest.db")
-	rm := NewRendezvousMgr(3030, "/tmp/rtest.db")
-	rm.Run()
+	tmp, err := ioutil.TempFile("", "rtest")
+	if err != nil {
+		t.Fatalf("Could not create temp db file", err)
+	}
+	tmpName := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpName)
+	rm := NewRendezvousMgr(0, tmpName)
+	ts := httptest.NewServer(rm.server.Handler)
+	defer ts.Close()
 
 	ident := crypto.NewSecretIdentity("empty")
-	raddr := "localhost:3030"
-	rec := &RecordJson{
-		Version: 1,
-		Host:    "localhost",
-		Port:    31337,
-	}
-	rec.Sign(ident)
-	t.Logf("Sending: %v", rec)
-	err := PutRendezvous(raddr, rec)
+	err = Publish(ts.URL, ident, "localhost", 31337)
 	if err != nil {
 		t.Fatalf("Unable to write record: %s", err)
 	}
 	t.Logf("Getting")
-	rec2, err := GetRendezvous(raddr, ident.Public().Fingerprint().String())
+	rec2, err := GetRendezvous(ts.URL, ident.Public().Fingerprint().String())
 	if err != nil {
 		t.Fatalf("Unable to read record: %s", err)
 	}
@@ -34,6 +35,4 @@ func TestRendezvous(t *testing.T) {
 		t.Fatalf("Stuff doesn't match")
 	}
 	t.Logf("Got: %v", rec2)
-
-	rm.Stop()
 }

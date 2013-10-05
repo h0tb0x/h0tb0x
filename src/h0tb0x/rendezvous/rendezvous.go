@@ -72,8 +72,8 @@ func (this *RecordJson) Sign(private *crypto.SecretIdentity) {
 }
 
 // Talks to a rendezvous server at addr and gets a record.  Also validated signature.  Returns nil on error.  TODO: timeout support
-func GetRendezvous(addr string, fingerprint string) (*RecordJson, error) {
-	resp, err := http.Get("http://" + addr + "/" + fingerprint)
+func GetRendezvous(url, fingerprint string) (*RecordJson, error) {
+	resp, err := http.Get(url + "/" + fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -94,11 +94,10 @@ func GetRendezvous(addr string, fingerprint string) (*RecordJson, error) {
 }
 
 // Puts a rendezvous record to the address in the record.  Presumes the record is signed.  TODO: timeout support
-func PutRendezvous(addr string, record *RecordJson) error {
+func PutRendezvous(url string, record *RecordJson) error {
 	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.Encode(&record)
-	req, err := http.NewRequest("PUT", "http://"+addr+"/"+record.Fingerprint, &buf)
+	json.NewEncoder(&buf).Encode(&record)
+	req, err := http.NewRequest("PUT", url+"/"+record.Fingerprint, &buf)
 	if err != nil {
 		return err
 	}
@@ -114,29 +113,27 @@ func PutRendezvous(addr string, record *RecordJson) error {
 	return nil
 }
 
-func Publish(addr string, ident *crypto.SecretIdentity, host string, port uint16) {
+func Publish(url string, ident *crypto.SecretIdentity, host string, port uint16) error {
 	rec := &RecordJson{
 		Version: int(time.Now().Unix()),
 		Host:    host,
 		Port:    port,
 	}
 	rec.Sign(ident)
-	PutRendezvous(addr, rec)
+	return PutRendezvous(url, rec)
 }
 
 // TODO: Dedup this code (it also appears in API, but I didn't know if I should make a whole module
 
 func sendJson(w http.ResponseWriter, obj interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
-	enc.Encode(obj)
+	json.NewEncoder(w).Encode(obj)
 }
 
 func sendError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	enc := json.NewEncoder(w)
-	enc.Encode(message)
+	json.NewEncoder(w).Encode(message)
 }
 
 func decodeJsonBody(w http.ResponseWriter, req *http.Request, out interface{}) bool {
