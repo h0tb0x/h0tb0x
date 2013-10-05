@@ -17,6 +17,14 @@ import (
 	"time"
 )
 
+const (
+	DialTimeout = 5 * time.Second
+)
+
+var (
+	client *http.Client
+)
+
 // Represents a record that can be published into the rendezvous server
 type RecordJson struct {
 	Fingerprint string
@@ -25,6 +33,21 @@ type RecordJson struct {
 	Host        string
 	Port        uint16
 	Signature   string
+}
+
+func init() {
+	client = &http.Client{
+		Transport: &http.Transport{
+			Dial: shortDial,
+		},
+	}
+}
+
+func shortDial(network, host string) (net.Conn, error) {
+	dialer := &net.Dialer{
+		Deadline: time.Now().Add(DialTimeout),
+	}
+	return dialer.Dial(network, host)
 }
 
 // Validates the signature on a record
@@ -79,7 +102,7 @@ func (this *RecordJson) dump() {
 // Returns nil on error.
 // TODO: timeout support
 func GetRendezvous(url, fingerprint string) (*RecordJson, error) {
-	resp, err := http.Get(url + "/" + fingerprint)
+	resp, err := client.Get(url + "/" + fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +136,6 @@ func PutRendezvous(url string, record *RecordJson) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	var client http.Client
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
