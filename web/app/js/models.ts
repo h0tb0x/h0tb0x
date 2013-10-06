@@ -44,4 +44,14 @@ module App {
 		friend: string;
 		remove: boolean;
 	}
+
+	export interface IForum extends ng.resource.IResource {
+	}
+
+	export interface IForumPost extends ng.resource.IResource {
+		uuid: string;
+		fp: string;
+		date: Date;
+		body: string;
+	}
 }

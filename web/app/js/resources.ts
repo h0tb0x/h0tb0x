@@ -30,6 +30,19 @@ module App {
 		]
 	}
 
+	export function WallResource(): any[] {
+		return [ '$resource',
+			function(
+				$resource: ng.resource.IResourceService
+			): ng.resource.IResourceClass {
+				return $resource('/api/collections/:cid/data/wall/:pid', {
+				}, {
+					save: { method: 'PUT' }
+				})
+			}
+		]
+	}
+
 	export function CollectionResource(): any[] {
 		return [ '$resource',
 			function(

@@ -18,7 +18,7 @@ module App {
 				'$http',
 				'SelfResource',
 				'ProfileResource',
-				MainCtrl,
+				MainCtrl
 			]
 		}
 
@@ -58,6 +58,29 @@ module App {
 		updatePicture() {
 			var now = new Date().getTime();
 			this.$scope.pictureUrl = '/api/collections/'+this.$scope.publicCid+'/data/picture'+'#'+now;
+		}
+	}
+
+	export interface IWallScope extends IRootScope {
+		posts: ng.resource.IResource;
+	}
+
+	export class WallCtrl {
+		public injection(): any[] {
+			return [
+				'$log',
+				'$scope',
+				'WallResource',
+				WallCtrl
+			]
+		}
+
+		constructor(
+			private $log: ng.ILogService,
+			private $scope: IWallScope,
+			private Wall: IResourceClass
+		) {
+			$scope.posts = Wall.query();
 		}
 	}
 

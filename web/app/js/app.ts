@@ -12,7 +12,7 @@ module App {
 		uploadFile(any);
 	}
 
-	var app = angular.module('App', ['ngResource', 'angularFileUpload'])
+	var app = angular.module('App', ['ngResource', 'angularFileUpload', 'ui.bootstrap'])
 
 		// configuration
 		.config(['$routeProvider',
@@ -23,6 +23,10 @@ module App {
 				.when('/', {
 					templateUrl: 'html/main.html',
 					controller: 'MainCtrl'
+				})
+				.when('/wall', {
+					templateUrl: 'html/wall.html',
+					controller: 'WallCtrl'
 				})
 				.when('/friends', {
 					templateUrl: 'html/friend-list.html',
@@ -45,6 +49,7 @@ module App {
 
 		// controllers
 		.controller('MainCtrl', MainCtrl.prototype.injection())
+		.controller('WallCtrl', WallCtrl.prototype.injection())
 		.controller('CollectionListCtrl', CollectionListCtrl.prototype.injection())
 		.controller('CollectionDetailCtrl', CollectionDetailCtrl.prototype.injection())
 		.controller('FriendListCtrl', FriendListCtrl.prototype.injection())
@@ -55,6 +60,7 @@ module App {
 
 		// resources
 		.factory('SelfResource', SelfResource())
+		.factory('WallResource', WallResource())
 		.factory('ProfileResource', ProfileResource())
 		.factory('CollectionResource', CollectionResource())
 		.factory('CollectionWriterResource', CollectionWriterResource())

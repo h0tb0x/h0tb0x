@@ -2,3 +2,11 @@ body {
 	padding-top: 60px;
 }
 
+/* Required for ui.bootstrap */
+.nav, .pagination, .carousel a { 
+	cursor: pointer; 
+}
+
+.wall-post .wall-meta {
+	text-align: center;
+}
