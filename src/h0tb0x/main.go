@@ -1,11 +1,11 @@
 package main
 
 import (
+	"code.google.com/p/go-nat-pmp"
+	"code.google.com/p/gopass"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/h0tb0x/go-nat-pmp"
-	"github.com/h0tb0x/gopass"
 	"h0tb0x/api"
 	"h0tb0x/base"
 	"h0tb0x/crypto"
