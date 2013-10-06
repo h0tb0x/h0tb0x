@@ -245,8 +245,10 @@ func (this *SyncMgr) onFriendChange(id int, fp *crypto.Digest, what link.FriendS
 	if what == link.FriendStartup || what == link.FriendAdded {
 		this.Log.Printf("Adding friend: %s", fp.String())
 		myFp := this.Ident.Public().Fingerprint()
+		// create inbox
 		this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (topic, friend_id, desired, requested) VALUES (?, ?, ?, ?)",
 			crypto.HashOf(fp, myFp).String(), id, 1, 1)
+		// create outbox
 		this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (topic, friend_id, desired, requested) VALUES (?, ?, ?, ?)",
 			crypto.HashOf(myFp, fp).String(), id, 1, 1)
 		cl := newClientLooper(this, id)

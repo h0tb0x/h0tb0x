@@ -79,27 +79,57 @@ func NewApiMgr(rendezvous string, apiPort uint16, data *data.DataMgr) *ApiMgr {
 		port:       apiPort,
 	}
 
-	router.HandleFunc("/api/self", api.getSelf).Methods("GET")
-	router.HandleFunc("/api/friends", api.getFriends).Methods("GET")
-	router.HandleFunc("/api/friends", api.postFriends).Methods("POST")
-	router.HandleFunc("/api/friends/{who}", api.getFriend).Methods("GET")
-	router.HandleFunc("/api/friends/{who}", api.putFriend).Methods("PUT")
-	router.HandleFunc("/api/friends/{who}", api.deleteFriend).Methods("DELETE")
-	router.HandleFunc("/api/collections", api.getCollections).Methods("GET")
-	router.HandleFunc("/api/collections", api.addCollection).Methods("POST")
-	router.HandleFunc("/api/collections/{cid}", api.getCollection).Methods("GET")
-	router.HandleFunc("/api/collections/{cid}/writers", api.getWriters).Methods("GET")
-	router.HandleFunc("/api/collections/{cid}/writers/{who}", api.getWriter).Methods("GET")
-	router.HandleFunc("/api/collections/{cid}/writers", api.addWriter).Methods("POST")
-	router.HandleFunc("/api/collections/{cid}/writers/{who}", api.deleteWriter).Methods("DELETE")
-	router.HandleFunc("/api/invites", api.postInvite).Methods("POST")
+	sr := router.PathPrefix("/api").Subrouter()
 
-	router.HandleFunc("/api/collections/{cid}/data", api.listData).Methods("GET")
-	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.getData).Methods("GET")
-	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.putData).Methods("PUT")
-	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.postData).Methods("POST")
-	router.HandleFunc("/api/collections/{cid}/data/{key:.+}", api.deleteData).Methods("DELETE")
+	// get self details
+	sr.HandleFunc("/self", api.getSelf).Methods("GET")
 
+	// handle invitations
+	sr.HandleFunc("/invites", api.postInvite).Methods("POST")
+
+	// Friends
+	// list friends
+	sr.HandleFunc("/friends", api.getFriends).Methods("GET")
+	// add friend
+	sr.HandleFunc("/friends", api.postFriends).Methods("POST")
+	// get friend details
+	sr.HandleFunc("/friends/{who}", api.getFriend).Methods("GET")
+	// update friend details
+	sr.HandleFunc("/friends/{who}", api.putFriend).Methods("PUT")
+	// remove friend
+	sr.HandleFunc("/friends/{who}", api.deleteFriend).Methods("DELETE")
+
+	// Collections
+	// list collections
+	sr.HandleFunc("/collections", api.getCollections).Methods("GET")
+	// create collection
+	sr.HandleFunc("/collections", api.addCollection).Methods("POST")
+	// get collection details
+	sr.HandleFunc("/collections/{cid}", api.getCollection).Methods("GET")
+
+	// Collections Writers
+	// list collection writers
+	sr.HandleFunc("/collections/{cid}/writers", api.getWriters).Methods("GET")
+	// get collection writer details
+	sr.HandleFunc("/collections/{cid}/writers/{who}", api.getWriter).Methods("GET")
+	// add collection writer
+	sr.HandleFunc("/collections/{cid}/writers", api.addWriter).Methods("POST")
+	// remove collection writer
+	sr.HandleFunc("/collections/{cid}/writers/{who}", api.deleteWriter).Methods("DELETE")
+
+	// Collection Objects
+	// list collection objects
+	sr.HandleFunc("/collections/{cid}/data", api.listData).Methods("GET")
+	// get collection object
+	sr.HandleFunc("/collections/{cid}/data/{key:.+}", api.getData).Methods("GET")
+	// update collection object
+	sr.HandleFunc("/collections/{cid}/data/{key:.+}", api.putData).Methods("PUT")
+	// add new collection object
+	sr.HandleFunc("/collections/{cid}/data/{key:.+}", api.postData).Methods("POST")
+	// remove collection objects
+	sr.HandleFunc("/collections/{cid}/data/{key:.+}", api.deleteData).Methods("DELETE")
+
+	// serve web app
 	router.PathPrefix("/").Handler(http.FileServer(http.Dir("web/app")))
 	return api
 }

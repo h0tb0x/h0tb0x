@@ -5,7 +5,7 @@ module App {
 
 	export class AppService {
 
-		private _profiles = {};
+		private _profiles: { [fp: string]: IFriend; } = {};
 		private _pending = {};
 
 		public injection(): any[] {
@@ -60,6 +60,13 @@ module App {
 		}
 
 		public resolveProfile(friend: IFriend) {
+			if (friend.id in this._profiles) {
+				var profile = this._profiles[friend.id];
+				friend.name = profile.name;
+				friend.pictureUrl = profile.pictureUrl;
+				return;
+			}
+
 			this.Profile.get({
 				cid: friend.recvCid
 			}, (ref: IProfileRef) => { // success
@@ -81,6 +88,7 @@ module App {
 				cid: friend.publicCid
 			}, (profile: IPublicProfile) => {
 				friend.name = profile.name;
+				this._profiles[friend.id] = friend;
 			});
 		}
 	}

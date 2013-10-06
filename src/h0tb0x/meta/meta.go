@@ -10,9 +10,11 @@ import (
 	"io"
 )
 
+type MetaMgrCallback func(string, string, []byte, string, bool)
+
 type MetaMgr struct {
 	*sync.SyncMgr
-	callbacks []func(string, string, []byte, string, bool)
+	callbacks []MetaMgrCallback
 }
 
 type collectionBasis struct {

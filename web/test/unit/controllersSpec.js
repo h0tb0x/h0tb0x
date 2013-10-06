@@ -77,16 +77,22 @@ describe('App', function() {
 				};
 				scope.recvBlob = 'RECV_BLOB';
 
+				// send passport to initiate friending process
 				httpBackend.expectPOST('/api/friends', {
 					passport: scope.recvBlob
 				}).respond(newFriend);
 				friends.push(newFriend);
 
+				// page refresh: reload friends list
 				httpBackend.expectGET('/api/friends').respond(friends);
+
+				// begin invite to friend for profile collection
 				httpBackend.expectPOST('/api/invites', {
 					cid: rootScope.publicCid, 
 					friend: newFriend.id
 				}).respond(200);
+
+				// put a profile reference into the friend's outbox
 				httpBackend.expectPUT('/api/collections/'+newFriend.sendCid+'/data/profile', {
 					publicCid: rootScope.publicCid
 				}).respond(200);
