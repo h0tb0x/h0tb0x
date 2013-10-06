@@ -1,8 +1,8 @@
 package db
 
 import (
+	_ "code.google.com/p/go-sqlite/go1/sqlite3"
 	"database/sql"
-	_ "github.com/h0tb0x/go-sqlite/go1/sqlite3"
 )
 
 // Represents an open database connection

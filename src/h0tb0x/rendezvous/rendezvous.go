@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/h0tb0x/mux"
+	"github.com/gorilla/mux"
 	"h0tb0x/crypto"
 	"h0tb0x/db"
 	"h0tb0x/transfer"

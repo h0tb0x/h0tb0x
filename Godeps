@@ -1,0 +1,7 @@
+github.com/gorilla/mux                   b08c5fcf14d01cb0c20ddf70157f54d4a2c3a38a
+github.com/gorilla/context               708054d61e5a2918b9f4e9700000ee611dcf03f5
+github.com/jteeuwen/go-bindata           v2.0.3
+code.google.com/p/go.crypto/scrypt       2cd6b3b93cdb
+code.google.com/p/go-nat-pmp             e04deda90d5683d6e375732740814a89eea7bafd
+code.google.com/p/gopass                 3b39664481b57ad99d34c86bd64090c28eacc7a1
+code.google.com/p/go-sqlite/go1/sqlite3  6e75c20f8fc4
