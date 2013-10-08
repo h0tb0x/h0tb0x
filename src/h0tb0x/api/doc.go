@@ -1,6 +1,6 @@
 /*
 
-H0tb0x gives users a way to share collections of data with trusted peers. 
+H0tb0x gives users a way to share collections of data with trusted peers.
 Sharing occurs across network links represented by friend relationships.
 To establish a friendship, two parties send introductory passports to each other.
 Once passports have been exchanged, a network link is maintained automatically.
@@ -8,23 +8,19 @@ Users curate data organized into collections, and each user may authorize their 
 Users communicate changes to collections via signed messages. A change is valid if its author belongs to the group of authorized writers for that collection.
 
 
-***********************
 Self
-***********************
 
 Self identifies the currently authenticated profile. Users may have many profiles.
 
 /api/self
 
 	GET		Provides information about the currently authenticated local user profile.
-			returns: json-encoded object representing the current profile.. 
+			returns: json-encoded object representing the current profile..
 
 
 
 
-***********************
 Friends
-***********************
 
 A friendship is a mutual relation between two profiles. Each user profile stores information corresponding to the other user as a friend object.
 
@@ -37,7 +33,8 @@ A friendship is a mutual relation between two profiles. Each user profile stores
 			request body: 	json-encoded friend object corresponding to new friend.
 
 
-/api/friends/{who}	
+/api/friends/{who}
+
 	Data types:	{who} -- fingerprint identifying the friend
 
 	GET		Get information about the friend identified by the given fingerprint.
@@ -52,9 +49,7 @@ A friendship is a mutual relation between two profiles. Each user profile stores
 			returns:       n/a
 
 
-***********************
 Collections
-***********************
 
 A collection is a curated set of data with common authorized writers and authorized viewers.
 
@@ -75,9 +70,7 @@ A collection is a curated set of data with common authorized writers and authori
 
 
 
-***********************
 Collection writers
-***********************
 
 
 /api/collections/{cid}/writers
@@ -91,7 +84,7 @@ Collection writers
 /api/collections/{cid}/writers/{who}
 
 	Data types:	{cid} -- string representing the collection id.
-	     		
+
 	GET		Get information about a writer associated with a particular collection.
 			returns: json-encoded object representing a friend authorized to write to collection labeled {cid}
 
@@ -100,11 +93,7 @@ Collection writers
 
 
 
-
-
-***********************
 Collection data
-***********************
 
 [	Definition	]
 
@@ -119,21 +108,17 @@ Collection data
 	GET		Get collection data for a particular data element.
 			returns:
 
-	PUT		
+	PUT
 			request body:
 
-	POST		
+	POST
 			request body:
 
 	DELETE		not implemented
 
 
 
-
-
-***********************
 Invitations
-***********************
 
 
 /api/invites
@@ -142,5 +127,4 @@ POST		Post an invitation.
 		request body: inviteJson
 
 */
-
 package api
