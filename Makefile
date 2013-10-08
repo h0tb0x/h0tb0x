@@ -5,9 +5,11 @@ ifeq ($(OS),Darwin)
 	export CC=gcc-4.2
 endif
 
-.PHONY: deps go test web clean clean_go clean_web 
+.PHONY: deps go test web 
+.PHONY: clean clean_go clean_web 
+.PHONY: docs deps_docs clean_docs
 
-all: deps go web
+all: deps go web docs
 
 bin/gpm:
 	rm -rf /tmp/gpm
@@ -23,6 +25,9 @@ deps: bin/gpm
 
 go: deps
 	go fmt h0tb0x/...
+	go install h0tb0x
+
+quick:
 	go install h0tb0x
 
 test: go
@@ -42,7 +47,7 @@ test_web:
 web:
 	make -C web
 
-clean: clean_go clean_web
+clean: clean_go clean_web clean_docs
 
 clean_go:
 	rm -rf bin
@@ -50,3 +55,12 @@ clean_go:
 
 clean_web:
 	make -C web clean
+
+clean_docs:
+	make -C doc clean
+
+deps_docs:
+	pip install Sphinx sphinxcontrib-httpdomain
+
+docs: deps_docs
+	make -C doc html

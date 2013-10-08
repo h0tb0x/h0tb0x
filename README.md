@@ -4,12 +4,29 @@ h0tb0x is a socially distributed file system.
 
 ## Development Environment
 
+For convenience, there is a script that you can source which will set the `GOPATH` and `PATH`:
+```
+. dev.env
+```
+
 ### Mac OS X
+
+Install homebrew:
+
+```
+ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
+```
+
+Update your PATH by adding this to your `$HOME/.bashrc` file:
+
+```
+export PATH=/usr/local/bin:$PATH
+```
 
 Use brew to install prereqs:
 ```
 brew update
-brew install apple-gcc42 git-flow go node
+brew install apple-gcc42 git-flow go node python
 ```
 
 ### Ubuntu
@@ -19,17 +36,17 @@ Use apt-get to install prereqs:
 apt-get install python-software-properties
 add-apt-repository ppa:chris-lea/node.js
 apt-get update
-apt-get install git-flow nodejs
+apt-get install git-flow nodejs python-pip
 ```
 
-Download and install prebuilt Linux binaries (assuming you have a 64-bit machine):
+Download and install prebuilt Linux go binaries (assuming you have a 64-bit machine):
 ```
 apt-get install wget build-essential
 wget https://go.googlecode.com/files/go1.1.2.linux-amd64.tar.gz
 tar -C /usr/local -xzf go1.1.2.linux-amd64.tar.gz
 ```
 
-Add this to your `$HOME/.profile`:
+Update your PATH by adding this to your `$HOME/.profile`:
 ```
 export PATH=$PATH:/usr/local/go/bin
 ```
@@ -41,20 +58,24 @@ A `Makefile` is included and is used in the traditional way:
 make
 ```
 
-To run tests after you've built it, try:
+If you only want to build the h0tb0x server:
 ```
-make test
+make go
 ```
 
-If you only want to build the web app:
+Or, if you prefer to build just the web app:
 ```
 make web
 ```
 
-And if you want to be sure that you're using the latest dependencies:
+And for the impatient, you can build the h0tb0x server without pulling down dependencies:
 ```
-make clean
-make
+make quick
+```
+
+Likewise, you can quickly build the web app and automatically watch for changes with:
+```
+make -C web watch
 ```
 
 ## Running h0tb0x
@@ -65,3 +86,21 @@ Today, it runs in the foreground, eventually it should run as a daemon:
 ```
 bin/h0tb0x
 ```
+
+## Testing h0tb0x
+
+To run all tests, make sure the h0tb0x server is up and running and do:
+```
+make test
+```
+
+With `dev.env` sourced, you can run individual go module unit tests with:
+```
+go test h0tb0x/{xxx}     # where {xxx} is the module (i.e. sync)
+```
+
+To run the web app unit tests and automatically re-run when files change:
+```
+make -C web unit-test
+```
+
