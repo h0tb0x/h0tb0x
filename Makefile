@@ -16,12 +16,12 @@ bin/gpm:
 
 deps: bin/gpm
 	go get github.com/jteeuwen/go-bindata
+	bin/go-bindata -pkg db -func schema_sql -out src/h0tb0x/db/schema_sql.go src/h0tb0x/db/schema.sql
 	go get h0tb0x
 	bin/gpm
 	go install github.com/jteeuwen/go-bindata
 
 go: deps
-	bin/go-bindata -pkg db -func schema_sql -out src/h0tb0x/db/schema_sql.go src/h0tb0x/db/schema.sql
 	go fmt h0tb0x/...
 	go install h0tb0x
 
