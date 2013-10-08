@@ -213,8 +213,14 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 				version = ?, 
 				host = ?, 
 				port = ?, 
-				signature = ?`,
-			record.Version, record.Host, record.Port, record.Signature)
+				signature = ?
+			WHERE
+				fingerprint = ?`,
+			record.Version,
+			record.Host,
+			record.Port,
+			record.Signature,
+			record.Fingerprint)
 	} else {
 		this.database.Exec(`
 			INSERT INTO Rendezvous (
