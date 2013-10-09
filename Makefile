@@ -3,6 +3,9 @@ OS := $(shell uname)
 
 ifeq ($(OS),Darwin)
 	export CC=gcc-4.2
+	SUDO=
+else
+	SUDO=sudo
 endif
 
 .PHONY: deps go test web 
@@ -60,7 +63,7 @@ clean_docs:
 	make -C doc clean
 
 deps_docs:
-	pip install Sphinx sphinxcontrib-httpdomain
+	$(SUDO) pip install Sphinx sphinxcontrib-httpdomain
 
 docs: deps_docs
 	make -C doc html
