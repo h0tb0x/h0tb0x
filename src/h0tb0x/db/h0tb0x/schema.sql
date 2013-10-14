@@ -1,5 +1,3 @@
-PRAGMA user_version = 2;
-
 CREATE TABLE Object(
 	topic TEXT NOT NULL,
 	type CHAR NOT NULL,

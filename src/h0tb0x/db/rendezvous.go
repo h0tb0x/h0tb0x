@@ -4,8 +4,6 @@ func init() {
 	schemas["rendezvous"] = &Schema{
 		name: "rendezvous",
 		latest: `
-PRAGMA user_version = 2;
-
 -- TODO: make this information private to friends via public key crypto
 CREATE TABLE Rendezvous(
 	-- Not in sig
@@ -24,8 +22,6 @@ CREATE UNIQUE INDEX IDX_Rendezvous_fp ON Rendezvous (fingerprint);
 		migrations: []string{
 
 			`
-PRAGMA user_version = 1;
-
 CREATE TABLE IF NOT EXISTS Object(
 	topic TEXT NOT NULL,
 	type CHAR NOT NULL,
@@ -107,8 +103,6 @@ CREATE INDEX IF NOT EXISTS IDX_Blob_needs_download ON Blob (needs_download);
 CREATE INDEX IF NOT EXISTS IDX_Object_topic ON Object (topic, type, key, priority);
 `,
 			`
-PRAGMA user_version = 1;
-
 DROP TABLE Object;
 DROP TABLE Friend;
 DROP TABLE TopicFriend;

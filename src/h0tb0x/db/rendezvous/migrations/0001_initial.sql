@@ -1,5 +1,3 @@
-PRAGMA user_version = 1;
-
 CREATE TABLE IF NOT EXISTS Object(
 	topic TEXT NOT NULL,
 	type CHAR NOT NULL,

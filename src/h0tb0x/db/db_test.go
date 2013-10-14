@@ -9,7 +9,6 @@ func setup(t *testing.T) string {
 	schemas["test"] = &Schema{
 		name: "test",
 		latest: `
-PRAGMA user_version = 2;
 CREATE TABLE Foo(
 	id INT NOT NULL,
 	name TEXT
@@ -17,13 +16,11 @@ CREATE TABLE Foo(
 `,
 		migrations: []string{
 			`
-PRAGMA user_version = 1;
 CREATE TABLE Foo(
 	id INT NOT NULL
 )
 `,
 			`
-PRAGMA user_version = 2;
 ALTER TABLE Foo ADD COLUMN name TEXT;
 `,
 		},
@@ -57,7 +54,6 @@ func TestMigration(t *testing.T) {
 	db.Close()
 
 	latest := `
-PRAGMA user_version = 3;
 CREATE TABLE Foo(
 	id INT NOT NULL,
 	name TEXT,
@@ -66,7 +62,6 @@ CREATE TABLE Foo(
 	`
 
 	migration := `
-PRAGMA user_version = 3;
 ALTER TABLE Foo ADD COLUMN author TEXT;
 	`
 
@@ -89,11 +84,19 @@ func TestBroken(t *testing.T) {
 CREATE TABLE Foo(
 	id INT NOT NULL
 )
-`}
+`,
+		migrations: []string{
+			`
+CREATE TABLE Foo(
+	id INT NOT NULL
+)
+`,
+		},
+	}
 
 	// start with broken install (like from initial install party)
 	db := NewDatabase(path, "broken")
-	if db.version != 0 {
+	if db.version != 1 {
 		t.Fatalf("Invalid version: %d", db.version)
 	}
 	db.Close()
@@ -105,7 +108,6 @@ CREATE TABLE Foo(
 	db.Close()
 
 	latest := `
-PRAGMA user_version = 3;
 CREATE TABLE Foo(
 	id INT NOT NULL,
 	name TEXT,
@@ -114,7 +116,6 @@ CREATE TABLE Foo(
 	`
 
 	migration := `
-PRAGMA user_version = 3;
 ALTER TABLE Foo ADD COLUMN author TEXT;
 	`
 

@@ -50,6 +50,7 @@ func (this *Database) apply(schema *Schema) {
 		// initial install, use latest schema
 		fmt.Printf("Installing latest schema %q\n", schema.name)
 		this.Exec(schema.latest)
+		this.db.Exec(fmt.Sprintf("PRAGMA user_version = %d;", len(schema.migrations)))
 	} else {
 		row := this.SingleQuery("PRAGMA user_version")
 		this.Scan(row, &this.version)
@@ -61,8 +62,8 @@ func (this *Database) apply(schema *Schema) {
 	this.Scan(row, &version)
 
 	if version != this.version {
-		fmt.Printf("Schema %q now at version: %d\n", schema.name, this.version)
 		this.version = version
+		fmt.Printf("Schema %q now at version: %d\n", schema.name, this.version)
 	}
 }
 
@@ -90,6 +91,7 @@ func (this *Database) migrate(schema *Schema) {
 			tx.Rollback()
 			panic(err)
 		}
+		tx.Exec(fmt.Sprintf("PRAGMA user_version = %d;", i+1))
 	}
 	tx.Commit()
 }

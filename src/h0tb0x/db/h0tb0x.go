@@ -4,8 +4,6 @@ func init() {
 	schemas["h0tb0x"] = &Schema{
 		name: "h0tb0x",
 		latest: `
-PRAGMA user_version = 2;
-
 CREATE TABLE Object(
 	topic TEXT NOT NULL,
 	type CHAR NOT NULL,
@@ -75,8 +73,6 @@ CREATE INDEX IDX_Object_topic ON Object (topic, type, key, priority);
 		migrations: []string{
 
 			`
-PRAGMA user_version = 1;
-
 CREATE TABLE IF NOT EXISTS Object(
 	topic TEXT NOT NULL,
 	type CHAR NOT NULL,
@@ -158,8 +154,6 @@ CREATE INDEX IF NOT EXISTS IDX_Blob_needs_download ON Blob (needs_download);
 CREATE INDEX IF NOT EXISTS IDX_Object_topic ON Object (topic, type, key, priority);
 `,
 			`
-PRAGMA user_version = 2;
-
 DROP TABLE Rendezvous;
 `,
 		},

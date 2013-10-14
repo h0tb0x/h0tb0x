@@ -1,5 +1,3 @@
-PRAGMA user_version = 2;
-
 DROP TABLE Object;
 DROP TABLE Friend;
 DROP TABLE TopicFriend;

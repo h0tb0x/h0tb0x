@@ -1,5 +1,3 @@
-PRAGMA user_version = 2;
-
 -- TODO: make this information private to friends via public key crypto
 CREATE TABLE Rendezvous(
 	-- Not in sig
