@@ -20,8 +20,7 @@ func NewBase(name string, port uint16) *Base {
 	ident := crypto.NewSecretIdentity("")
 	path := fmt.Sprintf("/tmp/%v.db", name)
 	os.Remove(path)
-	db := db.NewDatabase(path)
-	db.Install()
+	db := db.NewDatabase(path, "h0tb0x")
 
 	return &Base{
 		Log:   log,

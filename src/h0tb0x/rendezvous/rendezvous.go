@@ -272,8 +272,7 @@ type RendezvousMgr struct {
 }
 
 func NewRendezvousMgr(port int, file string) *RendezvousMgr {
-	database := db.NewDatabase(file)
-	database.Install()
+	database := db.NewDatabase(file, "rendezvous")
 
 	router := mux.NewRouter()
 	server := &http.Server{

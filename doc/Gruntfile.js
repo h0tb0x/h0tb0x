@@ -35,4 +35,8 @@ module.exports = function(grunt) {
 		'express',
 		'watch'
 	]);
+
+	grunt.registerTask('build', [
+		'exec'
+	]);
 }

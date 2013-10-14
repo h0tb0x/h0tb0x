@@ -8,7 +8,7 @@ else
 	SUDO=sudo
 endif
 
-.PHONY: deps go test web 
+.PHONY: deps schema go test web 
 .PHONY: clean clean_go clean_web 
 .PHONY: docs deps_docs clean_docs
 
@@ -20,20 +20,20 @@ bin/gpm:
 	cd /tmp/gpm && ./configure --prefix=${PWD} && make install
 
 deps: bin/gpm
-	go get github.com/jteeuwen/go-bindata
-	bin/go-bindata -pkg db -func schema_sql -out src/h0tb0x/db/schema_sql.go src/h0tb0x/db/schema.sql
-	go get h0tb0x
+	go get -d h0tb0x
 	bin/gpm
-	go install github.com/jteeuwen/go-bindata
+	go install h0tb0x/db/embed
 
-go: deps
+go: deps quick
+
+quick:
+	bin/embed src/h0tb0x/db/h0tb0x
+	bin/embed src/h0tb0x/db/rendezvous
 	go fmt h0tb0x/...
 	go install h0tb0x
 
-quick:
-	go install h0tb0x
-
 test: go
+	go test h0tb0x/db
 	go test h0tb0x/transfer
 	go test h0tb0x/crypto
 	go test h0tb0x/link
@@ -66,4 +66,4 @@ deps_docs:
 	$(SUDO) pip install Sphinx sphinxcontrib-httpdomain
 
 docs: deps_docs
-	make -C doc html
+	cd doc && grunt build

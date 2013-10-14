@@ -44,7 +44,7 @@ func NewMetaMgr(sync *sync.SyncMgr) *MetaMgr {
 	return &MetaMgr{SyncMgr: sync}
 }
 
-func (this *MetaMgr) AddCallback(callback func(string, string, []byte, string, bool)) {
+func (this *MetaMgr) AddCallback(callback MetaMgrCallback) {
 	this.callbacks = append(this.callbacks, callback)
 }
 

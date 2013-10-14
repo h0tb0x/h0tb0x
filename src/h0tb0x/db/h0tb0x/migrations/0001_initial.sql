@@ -1,3 +1,4 @@
+PRAGMA user_version = 1;
 
 CREATE TABLE IF NOT EXISTS Object(
 	topic TEXT NOT NULL,
@@ -78,5 +79,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS IDX_Blob ON Blob (key);
 CREATE INDEX IF NOT EXISTS IDX_TopicFriend_check ON TopicFriend (friend_id, desired, requested);
 CREATE INDEX IF NOT EXISTS IDX_Blob_needs_download ON Blob (needs_download);
 CREATE INDEX IF NOT EXISTS IDX_Object_topic ON Object (topic, type, key, priority);
-
-
