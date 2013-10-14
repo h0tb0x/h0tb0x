@@ -3,9 +3,15 @@ Invitation Process
 
 1. .. http:post:: /api/friends
 
+	Begin friending process.
+	
 	**Request**: NewFriend object
 
-	.. code-block:: json
+	.. code-block:: http
+
+		POST /api/friends HTTP/1.1
+		Accept: application/json
+		Content-Type: application/json
 
 		{
 		    "passport": "cZZg9SqrCyI_QvXNC_WPPosf4lxU-sFDlBviwhJycy5oMHRiMHgubmV0OjIxMzQ="
@@ -13,7 +19,12 @@ Invitation Process
 
 	**Response**: Friend object
 
-	.. code-block:: json
+	.. code-block:: http
+
+		HTTP/1.1 200 OK
+		Cache-Control: must-revalidate
+		Content-Type: application/json
+		ETag: "..."
 
 		{
 		    "fid": "m8OKHgBzOgHxX2Q0wCU5nwK5qK2VJpKglHFTDg==",
@@ -21,36 +32,51 @@ Invitation Process
 		    "port": 32777
 		}
 
-2. .. http:put:: /api/friends/{fid}/outbox/{cname}
+3. .. http:post:: /api/friends/{fid}/outbox
 
 	:param fid:   Friend fingerprint
-	:param cname: Collection name
 
 	**Request**: Invite object
 
-	.. code-block:: json
+	.. code-block:: http
+
+		POST /api/friends HTTP/1.1
+		Accept: application/json
+		Content-Type: application/json
 
 		{
-		    "cid": "ff1O1yvhdc2dtyPFNSR5QVNhSWCf7fCAGxIUEQ==",
-		    "name": "profile",
+		    "key": "profile",
+		    "type": "invite",
+		    "cid": "@collection:ff1O1yvhdc2dtyPFNSR5QVNhSWCf7fCAGxIUEQ==",
 		    "description": "fried's Profile",
-		    "icon": "/api/friends/m8OKHgBzOgHxX2Q0wCU5nwK5qK2VJpKglHFTDg==/outbox/profile/picture.png"
+		    "icon": "@attach:<hash>"
 		}
 
-3. .. http:get:: /api/inbox?state=eq=pending
+3. .. http:get:: /api/inbox?type=invite&dirty=true
 
-	:query state: Filter by ``state == pending``
+	:query type: Filter by ``type == "invite"``
+	:query dirty: Filter by ``dirty == true``
 
 	**Response**: Invite object
 
-	.. code-block:: json
+	.. code-block:: http
+
+		GET /api/inbox?type=invite&dirty=true HTTP/1.1
+		Accept: application/json
 
 		{
-		    "cid": "ff1O1yvhdc2dtyPFNSR5QVNhSWCf7fCAGxIUEQ==",
-		    "name": "profile",
-		    "description": "fried's Profile",
-		    "icon": "/api/friends/m8OKHgBzOgHxX2Q0wCU5nwK5qK2VJpKglHFTDg==/outbox/profile/picture.png",
-		    "state": "pending"
+		    "who": "<friend_fid>",
+		    "where": "<friend_inbox_cid>/data/profile",
+		    "what": {
+		        "key": "profile",
+		        "type": "invite",
+		        "cid": "@collection:ff1O1yvhdc2dtyPFNSR5QVNhSWCf7fCAGxIUEQ==",
+		        "description": "fried's Profile",
+		        "icon": "@attach:<hash>",
+		        "notes": {
+		        	"dirty": true
+		        }
+		    }
 		}
 
 4. .. http:post:: /api/
