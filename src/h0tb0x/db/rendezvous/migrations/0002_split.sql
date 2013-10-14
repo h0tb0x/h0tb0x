@@ -1,9 +1,9 @@
 PRAGMA user_version = 1;
 
-DROP TABLE IF NOT EXISTS Object;
-DROP TABLE IF NOT EXISTS Friend;
-DROP TABLE IF NOT EXISTS TopicFriend;
-DROP TABLE IF NOT EXISTS Blob;
-DROP TABLE IF NOT EXISTS Advert;
+DROP TABLE Object;
+DROP TABLE Friend;
+DROP TABLE TopicFriend;
+DROP TABLE Blob;
+DROP TABLE Advert;
 
 CREATE UNIQUE INDEX IDX_Rendezvous_fp ON Rendezvous (fingerprint);
