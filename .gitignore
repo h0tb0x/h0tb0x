@@ -7,5 +7,6 @@
 /h0tb0x
 /doc/*.svg
 /doc/*.html
+/doc/node_modules
 /src/h0tb0x/db/schema_sql.go
 /doc/_build
