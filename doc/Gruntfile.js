@@ -30,13 +30,6 @@ module.exports = function(grunt) {
 		}
 	});
 
-	grunt.registerTask('default', [
-		'exec',
-		'express',
-		'watch'
-	]);
-
-	grunt.registerTask('build', [
-		'exec'
-	]);
+	grunt.registerTask('default', [ 'exec' ]);
+	grunt.registerTask('monitor', [ 'exec', 'express', 'watch' ]);
 }

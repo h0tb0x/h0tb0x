@@ -3,14 +3,11 @@ OS := $(shell uname)
 
 ifeq ($(OS),Darwin)
 	export CC=gcc-4.2
-	SUDO=
-else
-	SUDO=sudo
 endif
 
 .PHONY: deps schema go test web 
 .PHONY: clean clean_go clean_web 
-.PHONY: docs deps_docs clean_docs
+.PHONY: docs clean_docs
 
 all: deps go web docs
 
@@ -62,8 +59,5 @@ clean_web:
 clean_docs:
 	make -C doc clean
 
-deps_docs:
-	$(SUDO) pip install Sphinx sphinxcontrib-httpdomain
-
-docs: deps_docs
-	cd doc && grunt build
+docs:
+	make -C doc
