@@ -1,4 +1,4 @@
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 
 DROP TABLE Object;
 DROP TABLE Friend;
