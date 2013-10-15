@@ -137,8 +137,7 @@ func newH0tb0x(dir string) {
 		fatal("", err)
 	}
 	configFile.Close()
-	thedb := db.NewDatabase(dbFilename)
-	thedb.Install()
+	thedb := db.NewDatabase(dbFilename, "h0tb0x")
 	thedb.Close()
 	ident := crypto.NewSecretIdentity(pass1)
 	identFile, err := os.Create(idFilename)
@@ -210,7 +209,7 @@ func main() {
 		if err != nil {
 			fatal("", err)
 		}
-		thedb = db.NewDatabase(dbFilename)
+		thedb = db.NewDatabase(dbFilename, "h0tb0x")
 	} else {
 		fmt.Printf("h0tb0x directory %s doesn't exist\n", *dir)
 		newH0tb0x(*dir)

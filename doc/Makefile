@@ -1,12 +1,26 @@
+NPM_BIN=node_modules/.bin
+OS := $(shell uname)
 
-DOCFLAGS := -a toc
-DOCFLAGS += -a icons
-DOCFLAGS += -n
+ifeq ($(OS),Darwin)
+	SUDO=
+else
+	SUDO=sudo
+endif
 
-all: h0tb0x.html sync.svg
+.PHONY: all clean deps build watch
 
-h0tb0x.html : h0tb0x.asc
-	asciidoc $(DOCFLAGS) $< 
+all: deps build
 
-sync.svg : sync.uml
-	java -jar plantuml.jar -tsvg $<
+clean:
+	rm -rf node_modules
+	rm -rf _build
+
+deps:
+	$(SUDO) pip install Sphinx sphinxcontrib-httpdomain
+	npm install
+
+build:
+	$(NPM_BIN)/grunt
+
+watch:
+	$(NPM_BIN)/grunt monitor

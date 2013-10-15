@@ -6,9 +6,11 @@ ifeq ($(OS),Darwin)
 	export CC=gcc-4.2
 endif
 
-.PHONY: deps go test web clean clean_go clean_web 
+.PHONY: deps schema go test web 
+.PHONY: clean clean_go clean_web 
+.PHONY: docs clean_docs
 
-all: deps go web
+all: deps go web docs
 
 bin/gpm:
 	rm -rf /tmp/gpm
@@ -16,17 +18,20 @@ bin/gpm:
 	cd /tmp/gpm && ./configure --prefix=${PWD} && make install
 
 deps: bin/gpm
-	go get github.com/h0tb0x/go-bindata
-	go get h0tb0x
-	gpm
-	go install github.com/h0tb0x/go-bindata
+	go get -d h0tb0x
+	bin/gpm
+	go install h0tb0x/db/embed
 
-go: 
-	go-bindata -pkg db -func schema_sql -out src/h0tb0x/db/schema_sql.go src/h0tb0x/db/schema.sql
+go: deps quick
+
+quick:
+	bin/embed src/h0tb0x/db/h0tb0x
+	bin/embed src/h0tb0x/db/rendezvous
 	go fmt h0tb0x/...
 	go install h0tb0x
 
 test: go
+	go test h0tb0x/db
 	go test h0tb0x/transfer
 	go test h0tb0x/crypto
 	go test h0tb0x/link
@@ -43,7 +48,7 @@ test_web:
 web:
 	make -C web
 
-clean: clean_go clean_web
+clean: clean_go clean_web clean_docs
 
 clean_go:
 	rm -rf bin
@@ -51,3 +56,9 @@ clean_go:
 
 clean_web:
 	make -C web clean
+
+clean_docs:
+	make -C doc clean
+
+docs:
+	make -C doc
