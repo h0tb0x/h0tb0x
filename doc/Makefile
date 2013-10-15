@@ -1,10 +1,13 @@
 NPM_BIN=node_modules/.bin
 OS := $(shell uname)
 
+
 ifeq ($(OS),Darwin)
 	SUDO=
+	PIP_INSTALL=brew install python
 else
 	SUDO=sudo
+	PIP_INSTALL=sudo apt-get install python-pip
 endif
 
 .PHONY: all clean deps build watch
