@@ -36,7 +36,7 @@ Use apt-get to install prereqs:
 apt-get install python-software-properties
 add-apt-repository ppa:chris-lea/node.js
 apt-get update
-apt-get install git-flow nodejs python-pip
+apt-get install git-flow nodejs python-pip bzr
 ```
 
 Download and install prebuilt Linux go binaries (assuming you have a 64-bit machine):
