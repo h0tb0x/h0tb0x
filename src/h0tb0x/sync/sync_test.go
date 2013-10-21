@@ -1,16 +1,39 @@
 package sync
 
 import (
-	"h0tb0x/base"
 	"h0tb0x/crypto"
 	"h0tb0x/link"
 	"h0tb0x/rendezvous"
+	"h0tb0x/test"
+	. "launchpad.net/gocheck"
 	"log"
-	"os"
 	"sync"
 	"testing"
 	"time"
 )
+
+// Hook up gocheck into the "go test" runner.
+func Test(t *testing.T) { TestingT(t) }
+
+type TestSyncSuite struct {
+	test.TestMgr
+	rm *rendezvous.RendezvousMgr
+}
+
+func init() {
+	Suite(&TestSyncSuite{})
+}
+
+func (this *TestSyncSuite) SetUpTest(c *C) {
+	this.TestMgr.SetUpTest(c)
+	this.rm = rendezvous.NewRendezvousMgr(this.ConnMgr, 3030, this.GetTempFile())
+	c.Assert(this.rm.Start(), IsNil)
+}
+
+func (this *TestSyncSuite) TearDownTest(c *C) {
+	this.rm.Stop()
+	this.TestMgr.TearDownTest(c)
+}
 
 type TestNode struct {
 	log   *log.Logger
@@ -21,11 +44,13 @@ type TestNode struct {
 	wg    sync.WaitGroup
 }
 
-func NewTestNode(name string, port uint16) *TestNode {
-	base := base.NewBase(name, port)
-	link := link.NewLinkMgr(base)
+func (this *TestSyncSuite) NewTestNode(name string, port uint16) *TestNode {
+	base := this.NewBase(name, port)
+	link := link.NewLinkMgr(base, this.ConnMgr)
 	sync := NewSyncMgr(link)
-	rendezvous.Publish("http://localhost:3030", base.Ident, "localhost", port)
+	rc := rendezvous.NewClient(this.ConnMgr)
+	err := rc.Put("http://localhost:3030", base.Ident, "localhost", port)
+	this.C.Assert(err, IsNil)
 
 	tn := &TestNode{
 		log:   base.Log,
@@ -35,7 +60,7 @@ func NewTestNode(name string, port uint16) *TestNode {
 		sync:  sync,
 	}
 	tn.sync.SetSink(RTData, tn.OnData)
-	tn.sync.Run()
+	tn.sync.Start()
 	return tn
 }
 
@@ -53,13 +78,11 @@ func CreateLink(lhs, rhs *TestNode) {
 	rhs.link.AddUpdateFriend(lhs.ident.Fingerprint(), "localhost:3030")
 }
 
-func TestSync(t *testing.T) {
-	os.Remove("/tmp/rtest.db")
-	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
-	rm.Run()
+func (this *TestSyncSuite) TestSync(c *C) {
+	this.C = c
 
-	alice := NewTestNode("Alice", 10001)
-	bob := NewTestNode("Bob", 10002)
+	alice := this.NewTestNode("Alice", 10001)
+	bob := this.NewTestNode("Bob", 10002)
 
 	CreateLink(alice, bob)
 

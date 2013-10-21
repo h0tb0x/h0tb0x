@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"h0tb0x/conn"
 	"h0tb0x/crypto"
 	"h0tb0x/db"
 	"h0tb0x/transfer"
@@ -15,10 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
-
-const (
-	DialTimeout = 5 * time.Second
 )
 
 var (
@@ -35,19 +32,67 @@ type RecordJson struct {
 	Signature   string
 }
 
-func init() {
-	client = &http.Client{
-		Transport: &http.Transport{
-			Dial: shortDial,
-		},
-	}
+type Client struct {
+	*http.Client
 }
 
-func shortDial(network, host string) (net.Conn, error) {
-	dialer := &net.Dialer{
-		Deadline: time.Now().Add(DialTimeout),
+func NewClient(connMgr conn.ConnMgr) *Client {
+	return &Client{conn.NewHttpClient(connMgr)}
+}
+
+// Talks to a rendezvous server at addr and gets a record.
+// Also validated signature.
+// Returns nil on error.
+// TODO: timeout support
+func (this *Client) Get(url, fingerprint string) (*RecordJson, error) {
+	resp, err := this.Client.Get(url + "/" + fingerprint)
+	if err != nil {
+		return nil, err
 	}
-	return dialer.Dial(network, host)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Invalid http return: %d - %s", resp.StatusCode, resp.Status)
+	}
+	var rec *RecordJson
+	err = json.NewDecoder(resp.Body).Decode(&rec)
+	if err != nil {
+		return nil, err
+	}
+	// fmt.Printf("GetRendezvous:\n")
+	// rec.dump()
+	if !rec.CheckSignature() {
+		return nil, fmt.Errorf("Bad signature for record")
+	}
+	return rec, nil
+}
+
+// Puts a rendezvous record to the address in the record.
+// Presumes the record is signed.
+// TODO: timeout support
+func (this *Client) Put(url string, ident *crypto.SecretIdentity, host string, port uint16) error {
+	// fmt.Printf("PutRendezvous:\n")
+	record := &RecordJson{
+		Version: int(time.Now().Unix()),
+		Host:    host,
+		Port:    port,
+	}
+	record.Sign(ident)
+	// record.dump()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(&record)
+	req, err := http.NewRequest("PUT", url+"/"+record.Fingerprint, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := this.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("Invalid status on Put: %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // Validates the signature on a record
@@ -97,65 +142,6 @@ func (this *RecordJson) dump() {
 	fmt.Printf("\tSignature: %q\n", this.Signature)
 }
 
-// Talks to a rendezvous server at addr and gets a record.
-// Also validated signature.
-// Returns nil on error.
-// TODO: timeout support
-func GetRendezvous(url, fingerprint string) (*RecordJson, error) {
-	resp, err := client.Get(url + "/" + fingerprint)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Invalid http return: %d - %s", resp.StatusCode, resp.Status)
-	}
-	var rec *RecordJson
-	err = json.NewDecoder(resp.Body).Decode(&rec)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Printf("GetRendezvous:\n")
-	rec.dump()
-	if !rec.CheckSignature() {
-		return nil, fmt.Errorf("Bad signature for record")
-	}
-	return rec, nil
-}
-
-// Puts a rendezvous record to the address in the record.
-// Presumes the record is signed.
-// TODO: timeout support
-func PutRendezvous(url string, record *RecordJson) error {
-	fmt.Printf("PutRendezvous:\n")
-	record.dump()
-	var buf bytes.Buffer
-	json.NewEncoder(&buf).Encode(&record)
-	req, err := http.NewRequest("PUT", url+"/"+record.Fingerprint, &buf)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Invalid status on Put: %d", resp.StatusCode)
-	}
-	return nil
-}
-
-func Publish(url string, ident *crypto.SecretIdentity, host string, port uint16) error {
-	rec := &RecordJson{
-		Version: int(time.Now().Unix()),
-		Host:    host,
-		Port:    port,
-	}
-	rec.Sign(ident)
-	return PutRendezvous(url, rec)
-}
-
 // TODO: Dedup this code (it also appears in API, but I didn't know if I should make a whole module
 
 func sendJson(w http.ResponseWriter, obj interface{}) {
@@ -186,12 +172,12 @@ func decodeJsonBody(w http.ResponseWriter, req *http.Request, out interface{}) b
 func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	key := vars["key"]
-	fmt.Printf("PUT request for key %s\n", key)
+	// fmt.Printf("PUT request for key %s\n", key)
 	var record *RecordJson
 	if !decodeJsonBody(w, req, &record) {
 		return
 	}
-	record.dump()
+	// record.dump()
 	if record.Fingerprint != key || !record.CheckSignature() {
 		sendError(w, http.StatusUnauthorized, "Unable to validate record")
 		return
@@ -239,7 +225,7 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 func (this *RendezvousMgr) onGet(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	key := vars["key"]
-	fmt.Printf("GET request for key %s\n", key)
+	// fmt.Printf("GET request for key %s\n", key)
 	row := this.database.SingleQuery(`
 		SELECT 
 			public_key, 
@@ -259,45 +245,43 @@ func (this *RendezvousMgr) onGet(w http.ResponseWriter, req *http.Request) {
 		sendError(w, http.StatusNotFound, "Unknown Key")
 		return
 	}
-	record.dump()
+	// record.dump()
 	sendJson(w, record)
 }
 
 // Represents the 'server' side of the Rendezvous protocol
 type RendezvousMgr struct {
 	database *db.Database
+	connMgr  conn.ConnMgr
 	listener net.Listener
+	router   *mux.Router
 	server   *http.Server
 	wait     sync.WaitGroup
 }
 
-func NewRendezvousMgr(port int, file string) *RendezvousMgr {
+func NewRendezvousMgr(connMgr conn.ConnMgr, port uint16, file string) *RendezvousMgr {
 	database := db.NewDatabase(file, "rendezvous")
-
 	router := mux.NewRouter()
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: router,
-	}
-
-	rm := &RendezvousMgr{
+	this := &RendezvousMgr{
 		database: database,
-		server:   server,
+		connMgr:  connMgr,
+		server: &http.Server{
+			Addr:    fmt.Sprintf(":%d", port),
+			Handler: router,
+		},
 	}
-
-	router.HandleFunc("/{key}", rm.onGet).Methods("GET")
-	router.HandleFunc("/{key}", rm.onPut).Methods("PUT")
-
-	return rm
+	router.HandleFunc("/{key}", this.onGet).Methods("GET")
+	router.HandleFunc("/{key}", this.onPut).Methods("PUT")
+	return this
 }
 
 // Start the server
-func (this *RendezvousMgr) Run() error {
-	listener, err := net.Listen("tcp", this.server.Addr)
+func (this *RendezvousMgr) Start() error {
+	var err error
+	this.listener, err = this.connMgr.Listen("tcp", this.server.Addr)
 	if err != nil {
 		return err
 	}
-	this.listener = listener
 	this.wait.Add(1)
 	go func() {
 		this.server.Serve(this.listener)
@@ -308,18 +292,20 @@ func (this *RendezvousMgr) Run() error {
 
 // Stops the server
 func (this *RendezvousMgr) Stop() {
-	this.listener.Close()
+	if this.listener != nil {
+		this.listener.Close()
+	}
 	this.wait.Wait()
 }
 
-func Serve(port int, file string) {
-	rendezvous := NewRendezvousMgr(port, file)
+func Serve(connMgr conn.ConnMgr, port uint16, file string) {
+	rendezvous := NewRendezvousMgr(connMgr, port, file)
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, os.Kill)
 
 	fmt.Println("Rendezvous server starting")
-	rendezvous.Run()
+	rendezvous.Start()
 	fmt.Println("Rendezvous server started")
 	<-ch
 	fmt.Println("Rendezvous server stopping")

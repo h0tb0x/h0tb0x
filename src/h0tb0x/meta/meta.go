@@ -49,11 +49,11 @@ func (this *MetaMgr) AddCallback(callback MetaMgrCallback) {
 }
 
 // Run the MetaMgr, starts sync as well
-func (this *MetaMgr) Run() {
+func (this *MetaMgr) Start() {
 	this.SyncMgr.SetSink(sync.RTBasis, this.onBasis)
 	this.SyncMgr.SetSink(sync.RTWriter, this.onWriter)
 	this.SyncMgr.SetSink(sync.RTData, this.onData)
-	this.SyncMgr.Run()
+	this.SyncMgr.Start()
 }
 
 // Stop the MetaMgr, stops sync as well

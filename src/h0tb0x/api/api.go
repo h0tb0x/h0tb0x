@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"h0tb0x/conn"
 	"h0tb0x/crypto"
 	"h0tb0x/data"
 	"h0tb0x/rendezvous"
@@ -17,15 +18,17 @@ import (
 
 type ApiMgr struct {
 	*data.DataMgr
-	extHost    string
-	extPort    uint16
-	rendezvous string
-	router     *mux.Router
-	server     *http.Server
-	wait       gosync.WaitGroup
-	port       uint16
-	conn       net.Listener
-	mutex      gosync.Mutex
+	extHost  string
+	extPort  uint16
+	rshost   string
+	rclient  *rendezvous.Client
+	router   *mux.Router
+	server   *http.Server
+	wait     gosync.WaitGroup
+	port     uint16
+	listener net.Listener
+	mutex    gosync.Mutex
+	connMgr  conn.ConnMgr
 }
 
 type SelfJson struct {
@@ -64,7 +67,7 @@ type WriterJson struct {
 	PubKey string `json:"pubkey"`
 }
 
-func NewApiMgr(rendezvous string, apiPort uint16, data *data.DataMgr) *ApiMgr {
+func NewApiMgr(rshost string, apiPort uint16, data *data.DataMgr, connMgr conn.ConnMgr) *ApiMgr {
 	router := mux.NewRouter()
 	server := &http.Server{
 		Handler: router,
@@ -72,20 +75,19 @@ func NewApiMgr(rendezvous string, apiPort uint16, data *data.DataMgr) *ApiMgr {
 	}
 
 	api := &ApiMgr{
-		rendezvous: rendezvous,
-		DataMgr:    data,
-		router:     router,
-		server:     server,
-		port:       apiPort,
+		rshost:  rshost,
+		rclient: rendezvous.NewClient(connMgr),
+		DataMgr: data,
+		router:  router,
+		server:  server,
+		port:    apiPort,
+		connMgr: connMgr,
 	}
 
 	sr := router.PathPrefix("/api").Subrouter()
 
 	// get self details
 	sr.HandleFunc("/self", api.getSelf).Methods("GET")
-
-	// handle invitations
-	sr.HandleFunc("/invites", api.postInvite).Methods("POST")
 
 	// Friends
 	// list friends
@@ -94,10 +96,16 @@ func NewApiMgr(rendezvous string, apiPort uint16, data *data.DataMgr) *ApiMgr {
 	sr.HandleFunc("/friends", api.postFriends).Methods("POST")
 	// get friend details
 	sr.HandleFunc("/friends/{who}", api.getFriend).Methods("GET")
-	// update friend details
-	sr.HandleFunc("/friends/{who}", api.putFriend).Methods("PUT")
 	// remove friend
 	sr.HandleFunc("/friends/{who}", api.deleteFriend).Methods("DELETE")
+
+	// handle invitations
+	// list incoming invitation
+	sr.HandleFunc("/invites", api.getInvites).Methods("GET")
+	// accept/reject invitation
+	sr.HandleFunc("/invites", api.postInvite).Methods("POST")
+	// send invitation
+	sr.HandleFunc("/friends/{who}/invites", api.postFriendInvite).Methods("POST")
 
 	// Collections
 	// list collections
@@ -135,25 +143,25 @@ func NewApiMgr(rendezvous string, apiPort uint16, data *data.DataMgr) *ApiMgr {
 }
 
 func (this *ApiMgr) runServer() {
-	this.server.Serve(this.conn)
+	this.server.Serve(this.listener)
 	this.wait.Done()
 }
 
-func (this *ApiMgr) Run() error {
-	this.DataMgr.Run()
+func (this *ApiMgr) Start() error {
+	this.DataMgr.Start()
 	this.CreateSpecialCollection(this.Ident, this.Ident.Fingerprint())
-	conn, err := net.Listen("tcp", this.server.Addr)
+	var err error
+	this.listener, err = this.connMgr.Listen("tcp", this.server.Addr)
 	if err != nil {
 		return err
 	}
-	this.conn = conn
 	this.wait.Add(1)
 	go this.runServer()
 	return nil
 }
 
 func (this *ApiMgr) Stop() {
-	this.conn.Close()
+	this.listener.Close()
 	this.wait.Wait()
 	this.DataMgr.Stop()
 }
@@ -202,8 +210,8 @@ func (this *ApiMgr) SetExt(host net.IP, port uint16) {
 	this.extHost = host.String()
 	this.extPort = port
 	this.mutex.Unlock()
-	this.Log.Printf("Publishing Rendezvous %s:%d to %s", this.extHost, this.extPort, this.rendezvous)
-	rendezvous.Publish("http://"+this.rendezvous, this.Ident, this.extHost, this.extPort)
+	this.Log.Printf("Publishing Rendezvous %s:%d to %s", this.extHost, this.extPort, this.rshost)
+	this.rclient.Put("http://"+this.rshost, this.Ident, this.extHost, this.extPort)
 }
 
 func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
@@ -211,10 +219,10 @@ func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
 	myCid := crypto.HashOf(myFp, myFp).String()
 
 	this.mutex.Lock()
-	passport := transfer.AsString(myFp, this.rendezvous)
+	passport := transfer.AsString(myFp, this.rshost)
 	json := SelfJson{
 		Id:         myFp.String(),
-		Rendezvous: this.rendezvous,
+		Rendezvous: this.rshost,
 		PublicKey:  transfer.AsString(this.Ident.Public()),
 		Passport:   passport,
 		Host:       this.extHost,
@@ -275,30 +283,6 @@ func (this *ApiMgr) getFriend(w http.ResponseWriter, req *http.Request) {
 	myFp := this.Ident.Public().Fingerprint()
 	this.populateFriend(&json, myFp, fp, pubkey)
 	this.sendJson(w, json)
-}
-
-func (this *ApiMgr) putFriend(w http.ResponseWriter, req *http.Request) {
-	// Get URL version of friend
-	fp := this.decodeWho(req)
-	if fp == nil {
-		this.sendError(w, http.StatusBadRequest, "Invalid friend id")
-		return
-	}
-	// Get Json
-	var json *FriendJson
-	if !this.decodeJsonBody(w, req, &json) {
-		return
-	}
-	// If Json has Id, check that it matches
-	if json.Id != "" && json.Id != fp.String() {
-		this.sendError(w, http.StatusBadRequest, "Friend ID's are inconsistent")
-		return
-	}
-	// Set Id in case it's absent
-	json.Id = fp.String()
-
-	// Do the real work
-	this.doPutFriend(w, req, &json.SelfJson)
 }
 
 func (this *ApiMgr) postFriends(w http.ResponseWriter, req *http.Request) {
@@ -516,6 +500,9 @@ func (this *ApiMgr) deleteWriter(w http.ResponseWriter, req *http.Request) {
 	this.RemoveWriter(cid, this.Ident, who)
 }
 
+func (this *ApiMgr) getInvites(w http.ResponseWriter, req *http.Request) {
+}
+
 func (this *ApiMgr) postInvite(w http.ResponseWriter, req *http.Request) {
 	var invite InviteJson
 	if !this.decodeJsonBody(w, req, &invite) {
@@ -534,6 +521,9 @@ func (this *ApiMgr) postInvite(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	this.sendJson(w, "OK")
+}
+
+func (this *ApiMgr) postFriendInvite(w http.ResponseWriter, req *http.Request) {
 }
 
 func (this *ApiMgr) getData(w http.ResponseWriter, req *http.Request) {

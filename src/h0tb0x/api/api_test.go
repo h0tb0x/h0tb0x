@@ -5,138 +5,153 @@ import (
 	"encoding/json"
 	"fmt"
 	"h0tb0x/base"
+	"h0tb0x/conn"
 	"h0tb0x/data"
 	"h0tb0x/link"
 	"h0tb0x/meta"
 	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
-	"io"
+	"h0tb0x/test"
+	. "launchpad.net/gocheck"
 	"net"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 )
 
-func NewTestNode(name string, linkPort uint16, apiPort uint16) *ApiMgr {
-	base := base.NewBase(name, linkPort)
-	link := link.NewLinkMgr(base)
+// Hook up gocheck into the "go test" runner.
+func Test(t *testing.T) { TestingT(t) }
+
+type TestApiSuite struct {
+	test.TestMgr
+	rm *rendezvous.RendezvousMgr
+}
+
+func init() {
+	Suite(&TestApiSuite{})
+}
+
+func (this *TestApiSuite) SetUpTest(c *C) {
+	this.TestMgr.SetUpTest(c)
+	this.rm = rendezvous.NewRendezvousMgr(this.ConnMgr, 3030, this.GetTempFile())
+	c.Assert(this.rm.Start(), IsNil)
+}
+
+func (this *TestApiSuite) TearDownTest(c *C) {
+	this.rm.Stop()
+	this.TestMgr.TearDownTest(c)
+}
+
+type node struct {
+	*base.Base
+	c       *C
+	client  *http.Client
+	api     *ApiMgr
+	tm      *test.TestMgr
+	baseUrl string
+}
+
+func (this *TestApiSuite) NewTestNode(name string, linkPort uint16, apiPort uint16) *node {
+	base := this.NewBase(name, linkPort)
+	link := link.NewLinkMgr(base, this.ConnMgr)
 	sync := sync.NewSyncMgr(link)
 	meta := meta.NewMetaMgr(sync)
-	data := data.NewDataMgr("/tmp/data/"+name, meta)
-	api := NewApiMgr("localhost:3030", apiPort, data)
-	api.SetExt(net.ParseIP("127.0.0.1"), linkPort)
-	api.Run()
-	return api
+	data := data.NewDataMgr(this.GetTempDir(), meta)
+	api := NewApiMgr("localhost:3030", apiPort, data, this.ConnMgr)
+	api.SetExt(net.IPv4(127, 0, 0, 1), linkPort)
+	api.Start()
+	return &node{
+		Base:    base,
+		c:       this.C,
+		client:  conn.NewHttpClient(this.ConnMgr),
+		api:     api,
+		baseUrl: fmt.Sprintf("http://localhost:%d", apiPort),
+	}
 }
 
-func SafeGet(client *http.Client, url string) *http.Response {
-	resp, err := client.Get(url)
-	if err != nil {
-		panic(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		panic(fmt.Errorf("Invalid status: %v", resp.Status))
+func (this *node) Stop() {
+	this.api.Stop()
+}
+
+func (this *node) get(url string, result interface{}) *http.Response {
+	resp, err := this.client.Get(this.baseUrl + url)
+	this.c.Assert(err, IsNil)
+	this.c.Assert(resp.StatusCode, Equals, http.StatusOK)
+	if result != nil {
+		err = json.NewDecoder(resp.Body).Decode(result)
+		this.c.Assert(err, IsNil)
 	}
 	return resp
 }
 
-func SafePost(client *http.Client, url string, data interface{}) *http.Response {
+func (this *node) post(url string, data interface{}, result interface{}) *http.Response {
 	var buf bytes.Buffer
 	err := json.NewEncoder(&buf).Encode(data)
-	if err != nil {
-		panic(err)
-	}
-	resp, err := client.Post(url, "application/json", &buf)
-	if err != nil {
-		panic(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		panic(fmt.Errorf("Invalid status: %v", resp.Status))
+	this.c.Assert(err, IsNil)
+	resp, err := this.client.Post(this.baseUrl+url, "application/json", &buf)
+	this.c.Assert(err, IsNil)
+	this.c.Assert(resp.StatusCode, Equals, http.StatusOK)
+	if result != nil {
+		err = json.NewDecoder(resp.Body).Decode(result)
+		this.c.Assert(err, IsNil)
 	}
 	return resp
 }
 
-func SafePut(client *http.Client, url string, data interface{}) *http.Response {
+func (this *node) put(url string, data interface{}, result interface{}) *http.Response {
 	var buf bytes.Buffer
 	err := json.NewEncoder(&buf).Encode(data)
-	if err != nil {
-		panic(err)
-	}
-	req, _ := http.NewRequest("PUT", url, &buf)
+	this.c.Assert(err, IsNil)
+	req, _ := http.NewRequest("PUT", this.baseUrl+url, &buf)
 	req.Header.Add("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		panic(fmt.Errorf("Invalid status: %v", resp.Status))
+	resp, err := this.client.Do(req)
+	this.c.Assert(err, IsNil)
+	this.c.Assert(resp.StatusCode, Equals, http.StatusOK)
+	if result != nil {
+		err = json.NewDecoder(resp.Body).Decode(result)
+		this.c.Assert(err, IsNil)
 	}
 	return resp
 }
 
-func SafeDecode(in io.Reader, obj interface{}) {
-	err := json.NewDecoder(in).Decode(obj)
-	if err != nil {
-		panic(err)
-	}
-}
+func (this *TestApiSuite) TestBasic(c *C) {
+	this.C = c
 
-func TestApi(t *testing.T) {
-	os.Remove("/tmp/rtest.db")
-	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
-	rm.Run()
+	alice := this.NewTestNode("A", 10001, 2001)
+	bob := this.NewTestNode("B", 10002, 2002)
 
-	alice := NewTestNode("Alice", 10001, 2001)
-	bob := NewTestNode("Bob", 10002, 2002)
-
-	alice.Run()
-	bob.Run()
-
-	client := &http.Client{}
-	resp := SafeGet(client, "http://localhost:2001/api/self")
 	var selfAlice SelfJson
-	SafeDecode(resp.Body, &selfAlice)
-	SafePut(client, "http://localhost:2002/api/friends/"+selfAlice.Id,
-		&FriendJson{SelfJson: SelfJson{Passport: selfAlice.Passport}})
+	alice.get("/api/self", &selfAlice)
+	bob.post("/api/friends", &FriendJson{SelfJson: SelfJson{Passport: selfAlice.Passport}}, nil)
 
-	resp = SafeGet(client, "http://localhost:2002/api/self")
 	var selfBob SelfJson
-	SafeDecode(resp.Body, &selfBob)
-	SafePut(client, "http://localhost:2001/api/friends/"+selfBob.Id,
-		&FriendJson{SelfJson: SelfJson{Passport: selfBob.Passport}})
+	bob.get("/api/self", &selfBob)
+	alice.post("/api/friends", &FriendJson{SelfJson: SelfJson{Passport: selfBob.Passport}}, nil)
 
 	time.Sleep(1 * time.Second)
 
-	resp = SafePost(client, "http://localhost:2001/api/collections", "")
-	var cj *CollectionJson
-	SafeDecode(resp.Body, &cj)
+	var cj CollectionJson
+	alice.post("/api/collections", "", &cj)
+
 	cid := cj.Id
 	alice.Log.Printf("Made a new collection: %s", cid)
-	resp = SafePost(client, "http://localhost:2001/api/invites",
-		&InviteJson{Cid: cid, Friend: selfBob.Id})
-	resp = SafePost(client, "http://localhost:2002/api/invites",
-		&InviteJson{Cid: cid, Friend: selfAlice.Id})
+	alice.post("/api/invites", &InviteJson{Cid: cid, Friend: selfBob.Id}, nil)
+	bob.post("/api/invites", &InviteJson{Cid: cid, Friend: selfAlice.Id}, nil)
 
-	SafePut(client, "http://localhost:2001/api/collections/"+cid+"/data/some_key", "SomeJsonCrap")
+	alice.put("/api/collections/"+cid+"/data/some_key", "SomeJsonCrap", nil)
 
 	time.Sleep(1 * time.Second)
 
 	var keys []CollectionItemJson
-	resp = SafeGet(client, "http://localhost:2002/api/collections/"+cid+"/data")
-	SafeDecode(resp.Body, &keys)
+	bob.get("/api/collections/"+cid+"/data", &keys)
 	bob.Log.Printf("Got keys: %v", keys)
 
 	var r string
-	resp = SafeGet(client, "http://localhost:2002/api/collections/"+cid+"/data/some_key")
-	SafeDecode(resp.Body, &r)
+	bob.get("/api/collections/"+cid+"/data/some_key", &r)
 
 	bob.Log.Printf("GOT: %s", r)
-	if r != "SomeJsonCrap" {
-		t.Fatal("Invalid result: %s", r)
-	}
+	c.Assert(r, Equals, "SomeJsonCrap")
 
 	alice.Stop()
 	bob.Stop()
-	rm.Stop()
 }

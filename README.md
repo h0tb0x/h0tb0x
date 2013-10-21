@@ -26,7 +26,7 @@ export PATH=/usr/local/bin:$PATH
 Use brew to install prereqs:
 ```
 brew update
-brew install apple-gcc42 git-flow go node python
+brew install apple-gcc42 git-flow go node python bzr
 ```
 
 ### Ubuntu

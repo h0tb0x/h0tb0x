@@ -259,8 +259,8 @@ func NewDataMgr(dir string, themeta *meta.MetaMgr) *DataMgr {
 	return dm
 }
 
-func (this *DataMgr) Run() {
-	this.MetaMgr.Run()
+func (this *DataMgr) Start() {
+	this.MetaMgr.Start()
 	this.goRoutines.Add(1)
 	go this.downloadLoop()
 }

@@ -102,13 +102,14 @@ func (this *Database) Close() {
 }
 
 // Executes a SQL statement.
-func (this *Database) Exec(sql string, args ...interface{}) {
+func (this *Database) Exec(sql string, args ...interface{}) sql.Result {
 	//fmt.Printf("About to EXEC\n")
-	_, err := this.db.Exec(sql, args...)
+	result, err := this.db.Exec(sql, args...)
 	//fmt.Printf("Done EXEC\n")
 	if err != nil {
 		panic(err)
 	}
+	return result
 }
 
 // Runs a query which should always return at most one row.

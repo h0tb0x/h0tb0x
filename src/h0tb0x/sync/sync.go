@@ -10,11 +10,12 @@ import (
 	"time"
 )
 
-// Records at it's most basic is a key/value pair, however the key is divided into three parts: Topic, Key, Author, and RecordType.
-// Topic determines who cares, RecordType allows multiple 'namespaces' within the topic, and Key is the rest of the key.
-// Multiple authors may disagree about the value, thus we allow one value per author.
-// The value also has a primary part (Value), along with Priority to help disambiguate.  The Signature allows
-// cryptographic validation of the Author if set.
+// Records at it's most basic is a key/value pair, however the key is divided into three parts:
+// Topic, Key, Author, and RecordType. Topic determines who cares, RecordType allows multiple
+// 'namespaces' within the topic, and Key is the rest of the key. Multiple authors may disagree
+// about the value, thus we allow one value per author. The value also has a primary part (Value),
+// along with Priority to help disambiguate.  The Signature allows cryptographic validation of the
+// Author if set.
 type Record struct {
 	RecordType int    // A namespacing mechanism for keys.
 	Topic      string // Basis for subscriptions, defines who is interested in this record.
@@ -84,9 +85,9 @@ func (this *clientLooper) safeSleep(until time.Time) {
 	}
 }
 
-func (this *clientLooper) safeSend(service int, in io.Reader, out io.Writer) error {
+func (this *clientLooper) safeSend(in io.Reader, out io.Writer) error {
 	tryTime := time.Now()
-	err := this.sync.Send(service, this.friendId, in, out)
+	err := this.sync.Send(link.ServiceNotify, this.friendId, in, out)
 	if err != nil {
 		// If err was fast, wait a bit
 		this.sync.Log.Printf("Error %s, retrying!\n", err)
@@ -127,7 +128,7 @@ func (this *clientLooper) notifyLoop() {
 			this.lock.Unlock()
 			var send_buf, recv_buf bytes.Buffer
 			transfer.Encode(&send_buf, data)
-			err := this.safeSend(link.ServiceNotify, &send_buf, &recv_buf)
+			err := this.safeSend(&send_buf, &recv_buf)
 			this.lock.Lock()
 			if err != nil {
 				continue
@@ -186,11 +187,6 @@ func NewSyncMgr(thelink *link.LinkMgr) *SyncMgr {
 // Sets the destination to send incoming sync data of a particular type
 func (this *SyncMgr) SetSink(recordType int, sink func(int, *crypto.Digest, *Record)) {
 	this.sinks[recordType] = sink
-}
-
-// Starts the sync manager.
-func (this *SyncMgr) Run() error {
-	return this.LinkMgr.Run()
 }
 
 // Stops the sync manager, block until complete

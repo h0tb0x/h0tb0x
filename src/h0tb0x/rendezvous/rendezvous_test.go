@@ -2,37 +2,38 @@ package rendezvous
 
 import (
 	"h0tb0x/crypto"
+	"h0tb0x/test"
 	"h0tb0x/transfer"
-	"io/ioutil"
-	"net/http/httptest"
-	"os"
+	. "launchpad.net/gocheck"
 	"testing"
 )
 
-func TestRendezvous(t *testing.T) {
-	tmp, err := ioutil.TempFile("", "rtest")
-	if err != nil {
-		t.Fatalf("Could not create temp db file", err)
-	}
-	tmpName := tmp.Name()
-	tmp.Close()
-	defer os.Remove(tmpName)
-	rm := NewRendezvousMgr(0, tmpName)
-	ts := httptest.NewServer(rm.server.Handler)
-	defer ts.Close()
+// Hook up gocheck into the "go test" runner.
+func Test(t *testing.T) { TestingT(t) }
+
+type TestRendezvousSuite struct {
+	test.TestMgr
+}
+
+func init() {
+	Suite(&TestRendezvousSuite{})
+}
+
+func (this *TestRendezvousSuite) Test(c *C) {
+	this.C = c
+
+	rm := NewRendezvousMgr(this.ConnMgr, 3030, this.GetTempFile())
+	rm.Start()
+	defer rm.Stop()
+
+	rc := NewClient(this.ConnMgr)
 
 	ident := crypto.NewSecretIdentity("empty")
-	err = Publish(ts.URL, ident, "localhost", 31337)
-	if err != nil {
-		t.Fatalf("Unable to write record: %s", err)
-	}
-	t.Logf("Getting")
-	rec2, err := GetRendezvous(ts.URL, ident.Public().Fingerprint().String())
-	if err != nil {
-		t.Fatalf("Unable to read record: %s", err)
-	}
-	if rec2.PublicKey != transfer.AsString(ident.Public()) {
-		t.Fatalf("Stuff doesn't match")
-	}
-	t.Logf("Got: %v", rec2)
+	err := rc.Put("http://localhost:3030", ident, "localhost", 31337)
+	c.Assert(err, IsNil, Commentf("Put"))
+
+	rec, err := rc.Get("http://localhost:3030", ident.Public().Fingerprint().String())
+	c.Assert(err, IsNil, Commentf("Get"))
+
+	c.Assert(rec.PublicKey, Equals, transfer.AsString(ident.Public()))
 }

@@ -2,25 +2,50 @@ package data
 
 import (
 	"bytes"
-	"h0tb0x/base"
 	"h0tb0x/link"
 	"h0tb0x/meta"
 	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
-	"os"
+	"h0tb0x/test"
+	. "launchpad.net/gocheck"
 	"testing"
 	"time"
 )
 
-func NewTestNode(name string, port uint16) *DataMgr {
-	base := base.NewBase(name, port)
-	link := link.NewLinkMgr(base)
+// Hook up gocheck into the "go test" runner.
+func Test(t *testing.T) { TestingT(t) }
+
+type TestDataSuite struct {
+	test.TestMgr
+	rm *rendezvous.RendezvousMgr
+}
+
+func init() {
+	Suite(&TestDataSuite{})
+}
+
+func (this *TestDataSuite) SetUpTest(c *C) {
+	this.TestMgr.SetUpTest(c)
+	this.rm = rendezvous.NewRendezvousMgr(this.ConnMgr, 3030, this.GetTempFile())
+	c.Assert(this.rm.Start(), IsNil)
+}
+
+func (this *TestDataSuite) TearDownTest(c *C) {
+	this.rm.Stop()
+	this.TestMgr.TearDownTest(c)
+}
+
+func (this *TestDataSuite) NewTestNode(name string, port uint16) *DataMgr {
+	base := this.NewBase(name, port)
+	link := link.NewLinkMgr(base, this.ConnMgr)
 	sync := sync.NewSyncMgr(link)
 	meta := meta.NewMetaMgr(sync)
-	data := NewDataMgr("/tmp/wtf/"+name, meta)
-	rendezvous.Publish("http://localhost:3030", base.Ident, "localhost", port)
+	data := NewDataMgr(this.GetTempDir(), meta)
+	rc := rendezvous.NewClient(this.ConnMgr)
+	err := rc.Put("http://localhost:3030", base.Ident, "localhost", port)
+	this.C.Assert(err, IsNil)
 
-	data.Run()
+	data.Start()
 	return data
 }
 
@@ -29,13 +54,11 @@ func CreateLink(lhs, rhs *DataMgr) {
 	rhs.AddUpdateFriend(lhs.Ident.Fingerprint(), "localhost:3030")
 }
 
-func TestData(t *testing.T) {
-	os.Remove("/tmp/rtest.db")
-	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
-	rm.Run()
+func (this *TestDataSuite) TestData(c *C) {
+	this.C = c
 
-	alice := NewTestNode("Alice", 10001)
-	bob := NewTestNode("Bob", 10002)
+	alice := this.NewTestNode("A", 10001)
+	bob := this.NewTestNode("B", 10002)
 
 	CreateLink(alice, bob)
 	time.Sleep(1 * time.Second)
@@ -47,23 +70,14 @@ func TestData(t *testing.T) {
 
 	file := bytes.NewBuffer([]byte("A GIF of a cute kitten"))
 	err := alice.PutData(cid, "Kitten", alice.Ident, file)
-	if err != nil {
-		t.Fatal("Unable to write: %s", err)
-
-	}
+	c.Assert(err, IsNil)
 	time.Sleep(1 * time.Second)
 
 	var outbuf bytes.Buffer
 	err = bob.GetData(cid, "Kitten", &outbuf)
-	if err != nil {
-		t.Fatal("Unable to read: %s", err)
-	}
-	if !bytes.Equal(outbuf.Bytes(), []byte("A GIF of a cute kitten")) {
-		t.Fatal("Invalid file: %v", outbuf.Bytes())
-	}
-	bob.Log.Printf("Received kitten picture: %s", string(outbuf.Bytes()))
+	c.Assert(err, IsNil)
+	c.Assert(outbuf.Bytes(), DeepEquals, []byte("A GIF of a cute kitten"))
 
 	alice.Stop()
 	bob.Stop()
-	rm.Stop()
 }

@@ -2,6 +2,7 @@
 /pkg
 /src/code.google.com
 /src/github.com
+/src/launchpad.net
 *.pyc
 *.DS_Store
 /h0tb0x

@@ -1,34 +1,57 @@
 package meta
 
 import (
-	"bytes"
-	"h0tb0x/base"
 	"h0tb0x/crypto"
 	"h0tb0x/link"
 	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
+	"h0tb0x/test"
+	. "launchpad.net/gocheck"
 	"log"
-	"os"
 	"testing"
 	"time"
 )
 
+// Hook up gocheck into the "go test" runner.
+func Test(t *testing.T) { TestingT(t) }
+
+type TestMetaSuite struct {
+	test.TestMgr
+	rm *rendezvous.RendezvousMgr
+}
+
+func init() {
+	Suite(&TestMetaSuite{})
+}
+
+func (this *TestMetaSuite) SetUpTest(c *C) {
+	this.TestMgr.SetUpTest(c)
+	this.rm = rendezvous.NewRendezvousMgr(this.ConnMgr, 3030, this.GetTempFile())
+	c.Assert(this.rm.Start(), IsNil)
+}
+
+func (this *TestMetaSuite) TearDownTest(c *C) {
+	this.rm.Stop()
+	this.TestMgr.TearDownTest(c)
+}
+
 type TestNode struct {
 	id   *crypto.SecretIdentity
 	port uint16
-	base *base.Base
 	log  *log.Logger
 	link *link.LinkMgr
 	sync *sync.SyncMgr
 	meta *MetaMgr
 }
 
-func NewTestNode(name string, port uint16) *TestNode {
-	base := base.NewBase(name, port)
-	link := link.NewLinkMgr(base)
+func (this *TestMetaSuite) NewTestNode(name string, port uint16) *TestNode {
+	base := this.NewBase(name, port)
+	link := link.NewLinkMgr(base, this.ConnMgr)
 	sync := sync.NewSyncMgr(link)
 	meta := NewMetaMgr(sync)
-	rendezvous.Publish("http://localhost:3030", base.Ident, "localhost", port)
+	rc := rendezvous.NewClient(this.ConnMgr)
+	err := rc.Put("http://localhost:3030", base.Ident, "localhost", port)
+	this.C.Assert(err, IsNil)
 
 	tn := &TestNode{
 		id:   base.Ident,
@@ -38,7 +61,7 @@ func NewTestNode(name string, port uint16) *TestNode {
 		sync: sync,
 		meta: meta,
 	}
-	tn.meta.Run()
+	tn.meta.Start()
 	return tn
 }
 
@@ -56,16 +79,14 @@ func SubPub(lhs, rhs *TestNode, cid string) {
 	rhs.sync.Subscribe(lhs.id.Fingerprint(), cid, true)
 }
 
-func TestMeta(t *testing.T) {
-	os.Remove("/tmp/rtest.db")
-	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
-	rm.Run()
+func (this *TestMetaSuite) TestMeta(c *C) {
+	this.C = c
 
 	// Make some users
-	alice := NewTestNode("Alice", 10001)
-	bob := NewTestNode("Bob", 10002)
-	carol := NewTestNode("Carol", 10003)
-	dave := NewTestNode("Dave", 10004)
+	alice := this.NewTestNode("A", 10001)
+	bob := this.NewTestNode("B", 10002)
+	carol := this.NewTestNode("C", 10003)
+	dave := this.NewTestNode("D", 10004)
 
 	// Make a circle of links
 	CreateLink(alice, bob)
@@ -97,18 +118,12 @@ func TestMeta(t *testing.T) {
 
 	// Bob reads the records
 	w := bob.meta.Get(cid, "Hello")
-	if w == nil {
-		t.Fatal("Unable to read record")
-	}
-	if !bytes.Equal(w, []byte("World")) {
-		t.Fatal("Record had wrong value")
-	}
+	c.Assert(w, NotNil)
+	c.Assert(w, DeepEquals, []byte("World"))
 
 	// Stop everyone
 	alice.Stop()
 	bob.Stop()
 	carol.Stop()
 	dave.Stop()
-
-	rm.Stop()
 }

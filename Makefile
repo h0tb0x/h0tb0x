@@ -17,6 +17,7 @@ bin/gpm:
 	cd /tmp/gpm && ./configure --prefix=${PWD} && make install
 
 deps: bin/gpm
+	go get launchpad.net/gocheck
 	go get -d h0tb0x
 	bin/gpm
 	go install h0tb0x/db/embed
@@ -30,15 +31,8 @@ quick:
 	go install h0tb0x
 
 test: go
-	go test h0tb0x/db
-	go test h0tb0x/transfer
-	go test h0tb0x/crypto
-	go test h0tb0x/link
-	go test h0tb0x/sync
-	go test h0tb0x/meta
-	go test h0tb0x/data
-	go test h0tb0x/api
-	go test h0tb0x/rendezvous
+	go test -i h0tb0x/...
+	go test h0tb0x/...
 	make -C web test
 
 test_web:

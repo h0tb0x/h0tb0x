@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"h0tb0x/api"
 	"h0tb0x/base"
+	"h0tb0x/conn"
 	"h0tb0x/crypto"
 	"h0tb0x/data"
 	"h0tb0x/db"
@@ -154,6 +155,7 @@ func newH0tb0x(dir string) {
 }
 
 func main() {
+	connMgr := conn.NewNetConnMgr()
 	user, err := user.Current()
 	if err != nil {
 		fatal("Current user is invalid", err)
@@ -169,7 +171,8 @@ func main() {
 	}
 	if *rendezvousPort != 0 {
 		rdbFilename := path.Join(*dir, RendezvousDb)
-		rendezvous.Serve(*rendezvousPort, rdbFilename)
+		port := uint16(*rendezvousPort)
+		rendezvous.Serve(connMgr, port, rdbFilename)
 		return
 	}
 
@@ -249,11 +252,11 @@ func main() {
 		Port:  config.LinkPort,
 	}
 
-	link := link.NewLinkMgr(base)
+	link := link.NewLinkMgr(base, connMgr)
 	sync := sync.NewSyncMgr(link)
 	meta := meta.NewMetaMgr(sync)
 	data := data.NewDataMgr(dataDir, meta)
-	api := api.NewApiMgr(config.Rendezvous, config.ApiPort, data)
+	api := api.NewApiMgr(config.Rendezvous, config.ApiPort, data, connMgr)
 	api.SetExt(extHost, extPort)
 
 	stopTime := make(chan bool)
@@ -283,7 +286,7 @@ func main() {
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, os.Kill)
-	api.Run()
+	api.Start()
 	<-ch
 	fmt.Fprintf(os.Stderr, "\n")
 	api.Log.Printf("Shutting down")

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"h0tb0x/base"
+	"h0tb0x/conn"
 	"h0tb0x/crypto"
 	"h0tb0x/db"
 	"h0tb0x/rendezvous"
@@ -52,19 +53,62 @@ type friendInfo struct {
 	failed      bool
 }
 
+type ListenerFunc func(id int, fingerprint *crypto.Digest, what FriendStatus)
+type HandlerFunc func(int, *crypto.Digest, io.Reader, io.Writer) (err error)
+
 // The LinkMgr is the primary interface for the Link Layer
 type LinkMgr struct {
 	*base.Base
-	listener  net.Listener
-	server    *http.Server
-	clientTls *tls.Config
-	client    *http.Client
-	friendsFp map[string]*friendInfo
-	friendsId map[int]*friendInfo
-	cmut      sync.RWMutex
-	wait      sync.WaitGroup
-	listeners []func(id int, fingerprint *crypto.Digest, what FriendStatus)
-	handlers  map[int]func(int, *crypto.Digest, io.Reader, io.Writer) (err error)
+	clientTls     *tls.Config
+	friendsByFp   map[string]*friendInfo
+	friendsById   map[int]*friendInfo
+	friendsByHost map[string]*friendInfo
+	mutex         sync.RWMutex
+	wait          sync.WaitGroup
+	listeners     []ListenerFunc
+	handlers      map[int]HandlerFunc
+	client        *http.Client
+	server        *http.Server
+	connMgr       conn.ConnMgr
+	listener      net.Listener
+	rclient       *rendezvous.Client
+}
+
+// Constructs a new LinkMgr, does not start it.
+func NewLinkMgr(base *base.Base, connMgr conn.ConnMgr) *LinkMgr {
+	cert := base.Ident.TlsCertificate()
+
+	serverTls := &tls.Config{
+		Certificates: []tls.Certificate{*cert},
+		ClientAuth:   tls.RequireAnyClientCert,
+	}
+
+	this := &LinkMgr{
+		Base:          base,
+		friendsByFp:   make(map[string]*friendInfo),
+		friendsById:   make(map[int]*friendInfo),
+		friendsByHost: make(map[string]*friendInfo),
+		client:        new(http.Client),
+		clientTls: &tls.Config{
+			Certificates:       []tls.Certificate{*cert},
+			InsecureSkipVerify: true, // We validate by cert hash manually
+		},
+		server: &http.Server{
+			Addr:      fmt.Sprintf(":%d", base.Port),
+			TLSConfig: serverTls,
+		},
+		handlers: make(map[int]HandlerFunc),
+		connMgr:  connMgr,
+		rclient:  rendezvous.NewClient(connMgr),
+	}
+
+	transport := new(http.Transport)
+	transport.RegisterProtocol("h0tb0x", this)
+	transport.Dial = this.dial
+	this.client.Transport = transport
+	this.server.Handler = this
+
+	return this
 }
 
 func (this *LinkMgr) respondError(response http.ResponseWriter, status int, err string) {
@@ -74,14 +118,8 @@ func (this *LinkMgr) respondError(response http.ResponseWriter, status int, err 
 	response.Write([]byte(err))
 }
 
-// Used to forward ServeHTTP to LinkMgr without making it public
-type hideServer struct {
-	impl *LinkMgr
-}
-
-// Handle inbound request, implemented on hideServer to make non-public
-func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	this := hthis.impl
+// Handle inbound request
+func (this *LinkMgr) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	state := request.TLS
 	if state == nil {
 		this.respondError(response, http.StatusBadRequest, "Must use TLS")
@@ -93,7 +131,7 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 		return
 	}
 
-	id, err := crypto.PublicFromCert(state.PeerCertificates[0])
+	ident, err := crypto.PublicFromCert(state.PeerCertificates[0])
 	if err != nil {
 		this.respondError(response, http.StatusForbidden, "Invalid peer certificicate")
 		return
@@ -116,25 +154,26 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 		return
 	}
 
-	this.cmut.RLock()
+	this.mutex.RLock()
 	handler, sok := this.handlers[service]
 	if !sok {
-		this.cmut.RUnlock()
+		this.mutex.RUnlock()
 		this.respondError(response, http.StatusForbidden, fmt.Sprintf("Unknown service: %d", service))
 		return
 	}
 
-	fi, ok := this.friendsFp[id.Fingerprint().String()]
+	fp := ident.Fingerprint().String()
+	fi, ok := this.friendsByFp[fp]
 	if !ok {
-		this.cmut.RUnlock()
-		this.respondError(response, http.StatusForbidden, fmt.Sprintf("Unknown friend: %s", id.Fingerprint().String()))
+		this.mutex.RUnlock()
+		this.respondError(response, http.StatusForbidden, fmt.Sprintf("Unknown friend: %s", fp))
 		return
 	}
 	this.wait.Add(1)
 	response.Header().Set("Content-Type", "application/binary")
 	check := &didWrite{inner: response, wrote: false}
-	err = handler(fi.id, id.Fingerprint(), request.Body, check)
-	this.cmut.RUnlock()
+	err = handler(fi.id, ident.Fingerprint(), request.Body, check)
+	this.mutex.RUnlock()
 	this.wait.Done()
 
 	if err != nil && !check.wrote {
@@ -143,73 +182,81 @@ func (hthis *hideServer) ServeHTTP(response http.ResponseWriter, request *http.R
 	}
 }
 
-func (this *LinkMgr) tryRendezvous(ra string, fp *crypto.Digest) *friendInfo {
-	this.Log.Printf("Doing Rendezvous lookup")
-	rec, err := rendezvous.GetRendezvous("http://"+ra, fp.String())
-
-	var fi *friendInfo
-	if err == nil {
-		this.Log.Printf("Got new host: %s, port: %d", rec.Host, rec.Port)
-		this.UpdateHostData(fp, rec.Host, uint16(rec.Port))
-		this.cmut.RLock()
-		fi = this.friendsFp[fp.String()]
-		this.cmut.RUnlock()
-	} else {
-		this.Log.Printf("Rendezvous failed: %s", err)
+func (this *LinkMgr) getFriendByFp(fp string) *friendInfo {
+	this.mutex.RLock()
+	defer this.mutex.RUnlock()
+	fi, ok := this.friendsByFp[fp]
+	if !ok {
+		return nil
 	}
 	return fi
 }
 
-// Generate an outbound TLS connection so we can hand verify the remote side
-func (this *LinkMgr) safeDial(netStr string, host string) (net.Conn, error) {
-	var id int
-	_, err := fmt.Sscanf(host, "id_%d:80", &id)
-	if err != nil {
-		return nil, err
-	}
-	this.cmut.RLock()
-	fi, ok := this.friendsId[id]
+func (this *LinkMgr) getFriendByHost(host string) *friendInfo {
+	this.mutex.RLock()
+	defer this.mutex.RUnlock()
+	fi, ok := this.friendsByHost[host]
 	if !ok {
-		this.cmut.RUnlock()
+		return nil
+	}
+	return fi
+}
+
+func (this *LinkMgr) RoundTrip(req *http.Request) (*http.Response, error) {
+	fp := req.URL.Host
+	fi := this.getFriendByFp(fp)
+	if fi == nil {
+		this.Log.Printf("No such friend")
+		return nil, fmt.Errorf("Dial of removed friend: %s", fp)
+	}
+
+	// resolve the request
+	this.Log.Printf("Doing Rendezvous lookup")
+	if fi.failed || fi.host == "$" {
+		rec, err := this.rclient.Get("http://"+fi.rendezvous, fp)
+		if err == nil {
+			this.Log.Printf("Got new host: %s, port: %d", rec.Host, rec.Port)
+			fi = this.UpdateHostData(fi.fingerprint, rec.Host, rec.Port)
+		} else {
+			this.Log.Printf("Rendezvous failed: %s", err)
+		}
+	}
+
+	if fi.host == "$" {
+		return nil, fmt.Errorf("Unable to connect, don't know address yet & rendezvous failed")
+	}
+
+	// re-write the url
+	req.URL.Scheme = "http"
+	req.URL.Host = fmt.Sprintf("%s:%d", fi.host, fi.port)
+	return this.client.Do(req)
+}
+
+// Generate an outbound TLS connection so we can hand verify the remote side
+func (this *LinkMgr) dial(proto, host string) (net.Conn, error) {
+	fi := this.getFriendByHost(host)
+	if fi == nil {
 		this.Log.Printf("No such friend")
 		return nil, fmt.Errorf("Dial of removed friend: %s", host)
 	}
-	this.cmut.RUnlock()
-	if fi.failed || fi.host == "$" {
-		fi2 := this.tryRendezvous(fi.rendezvous, fi.fingerprint)
-		if fi2 == nil {
-			if fi.host == "$" {
-				return nil, fmt.Errorf("Unable to connect, don't know address yet & rendezvous failed")
-			}
-		} else {
-			fi = fi2
-		}
-	}
-	this.Log.Printf("Dialing(%s:%d)", fi.host, fi.port)
-	var dialer net.Dialer
-	dialer.Deadline = time.Now().Add(DialTimeout)
-	tcpconn, err := dialer.Dial(netStr, fmt.Sprintf("%s:%d", fi.host, fi.port))
-
+	this.Log.Printf("Dialing(%s)", host)
+	tcp, err := this.connMgr.Dial(proto, host, DialTimeout)
 	if err != nil {
 		fi.failed = true
 		return nil, err
 	}
-
-	conn := tls.Client(tcpconn, this.clientTls)
+	conn := tls.Client(tcp, this.clientTls)
 	err = conn.Handshake()
 	if err != nil {
 		fi.failed = true
 		return nil, err
 	}
-
 	state := conn.ConnectionState()
-
 	if len(state.PeerCertificates) < 1 {
 		err = fmt.Errorf("Missing peer certificate")
 		fi.failed = true
 		return nil, err
 	}
-
 	ident, err := crypto.PublicFromCert(state.PeerCertificates[0])
 	if err != nil {
 		fi.failed = true
@@ -220,59 +267,17 @@ func (this *LinkMgr) safeDial(netStr string, host string) (net.Conn, error) {
 		fi.failed = true
 		return nil, err
 	}
-
 	return conn, nil
 }
 
-// Constructs a new LinkMgr, does not start it.
-func NewLinkMgr(base *base.Base) *LinkMgr {
-	cert := base.Ident.TlsCertificate()
-
-	serverTlsCfg := &tls.Config{
-		Certificates: []tls.Certificate{*cert},
-		ClientAuth:   tls.RequireAnyClientCert,
-	}
-
-	clientTlsCfg := &tls.Config{
-		Certificates:       []tls.Certificate{*cert},
-		InsecureSkipVerify: true, // We validate by cert hash manually
-	}
-
-	client := &http.Client{}
-
-	server := &http.Server{
-		Addr:      fmt.Sprintf(":%d", base.Port),
-		TLSConfig: serverTlsCfg,
-	}
-
-	linkMgr := &LinkMgr{
-		Base:      base,
-		friendsFp: make(map[string]*friendInfo),
-		friendsId: make(map[int]*friendInfo),
-		server:    server,
-		clientTls: clientTlsCfg,
-		client:    client,
-		listeners: make([]func(id int, fingerprint *crypto.Digest, what FriendStatus), 0),
-		handlers:  make(map[int]func(int, *crypto.Digest, io.Reader, io.Writer) (err error)),
-	}
-
-	server.Handler = &hideServer{impl: linkMgr}
-
-	client.Transport = &http.Transport{
-		Dial: linkMgr.safeDial,
-	}
-
-	return linkMgr
-}
-
 // Add a handler for a certain 'service id'
-func (this *LinkMgr) AddHandler(service int, f func(int, *crypto.Digest, io.Reader, io.Writer) (err error)) {
-	this.handlers[service] = f
+func (this *LinkMgr) AddHandler(service int, handler HandlerFunc) {
+	this.handlers[service] = handler
 }
 
 // Add a listener to get link status notificiations
-func (this *LinkMgr) AddListener(f func(id int, fingerprint *crypto.Digest, what FriendStatus)) {
-	this.listeners = append(this.listeners, f)
+func (this *LinkMgr) AddListener(listener ListenerFunc) {
+	this.listeners = append(this.listeners, listener)
 }
 
 func (this *LinkMgr) decodeFriend(row db.Row, failed bool) *friendInfo {
@@ -296,35 +301,41 @@ func (this *LinkMgr) decodeFriend(row db.Row, failed bool) *friendInfo {
 		}
 	}
 	return &friendInfo{
-		id: id, fingerprint: fingerprint, rendezvous: rendezvous,
-		publicKey: publicKey, host: host, port: port,
-		failed: failed,
+		id:          id,
+		fingerprint: fingerprint,
+		rendezvous:  rendezvous,
+		publicKey:   publicKey,
+		host:        host,
+		port:        port,
+		failed:      failed,
 	}
 }
 
 // Kicks off the link manager, presumes Callbacks has been set
-func (this *LinkMgr) Run() error {
-	conn, err := net.Listen("tcp", this.server.Addr)
-	if err != nil {
-		return err
-	}
-	this.listener = tls.NewListener(conn, this.server.TLSConfig)
-
+func (this *LinkMgr) Start() error {
 	rows := this.Db.MultiQuery(
 		"SELECT id, fingerprint, rendezvous, public_key, host, port FROM Friend")
 	for rows.Next() {
 		fi := this.decodeFriend(rows, false)
-		this.friendsFp[fi.fingerprint.String()] = fi
-		this.friendsId[fi.id] = fi
+		this.friendsByFp[fi.fingerprint.String()] = fi
+		this.friendsById[fi.id] = fi
+		hostKey := fmt.Sprintf("%s:%d", fi.host, fi.port)
+		this.friendsByHost[hostKey] = fi
 	}
 
-	this.cmut.RLock()
-	for id, fi := range this.friendsId {
-		for _, f := range this.listeners {
-			f(id, fi.fingerprint, FriendStartup)
+	this.mutex.RLock()
+	for id, fi := range this.friendsById {
+		for _, onListener := range this.listeners {
+			onListener(id, fi.fingerprint, FriendStartup)
 		}
 	}
-	this.cmut.RUnlock()
+	this.mutex.RUnlock()
+
+	listener, err := this.connMgr.Listen("tcp", this.server.Addr)
+	if err != nil {
+		return err
+	}
+	this.listener = tls.NewListener(listener, this.server.TLSConfig)
 
 	this.wait.Add(1)
 	go func() {
@@ -343,85 +354,90 @@ func (this *LinkMgr) Stop() {
 
 // Add a new friend, or if the friend exists, update rendezvous address
 func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, rendezvous string) {
-	this.cmut.Lock()
-	defer this.cmut.Unlock()
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
 	// Make or insert friend
-	this.Db.Exec(
-		"INSERT OR IGNORE INTO Friend (id, fingerprint, rendezvous, host) VALUES (NULL, ?, ?, '$')",
+	result := this.Db.Exec(`
+		INSERT OR IGNORE INTO Friend (
+			id, fingerprint, rendezvous, host
+		) VALUES (
+			NULL, ?, ?, '$'
+		)`,
 		fp.Bytes(), rendezvous)
+	id64, _ := result.LastInsertId()
+	id := int(id64)
 
-	row := this.Db.SingleQuery("SELECT id FROM Friend WHERE fingerprint = ?", fp.Bytes())
-	var id int
-	this.Db.Scan(row, &id)
+	this.Db.Exec("UPDATE Friend SET rendezvous = ? WHERE id = ?", rendezvous, id)
 
-	this.Db.Exec("UPDATE Friend SET rendezvous = ? WHERE id = ?",
-		rendezvous, id)
-
-	_, ok := this.friendsFp[fp.String()]
-	row = this.Db.SingleQuery(`SELECT id, fingerprint, rendezvous, public_key, host, port 
-				FROM Friend WHERE id = ?`, id)
+	_, ok := this.friendsByFp[fp.String()]
+	row := this.Db.SingleQuery(`
+		SELECT 
+			id, fingerprint, rendezvous, public_key, host, port 
+		FROM Friend 
+		WHERE id = ?`, id)
 	fi := this.decodeFriend(row, false)
-	this.friendsFp[fi.fingerprint.String()] = fi
-	this.friendsId[id] = fi
+	this.friendsByFp[fi.fingerprint.String()] = fi
+	this.friendsById[id] = fi
 	if !ok {
 		// If it was added, signal upper layer
-		for _, callback := range this.listeners {
-			callback(id, fp, FriendAdded)
+		for _, onListener := range this.listeners {
+			onListener(id, fp, FriendAdded)
 		}
 	}
 }
 
 // Update a friend's host and port data, allows bypass of rendezvous mechanism
-func (this *LinkMgr) UpdateHostData(fp *crypto.Digest, host string, port uint16) {
-	this.cmut.Lock()
-	defer this.cmut.Unlock()
-
+func (this *LinkMgr) UpdateHostData(fp *crypto.Digest, host string, port uint16) *friendInfo {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
 	row := this.Db.SingleQuery("SELECT id FROM Friend WHERE fingerprint = ?", fp.Bytes())
 	var id int
 	this.Db.Scan(row, &id)
-
-	this.Db.Exec("UPDATE Friend SET host = ?, port = ? WHERE id = ?",
-		host, port, id)
-
-	row = this.Db.SingleQuery(`SELECT id, fingerprint, rendezvous, public_key, host, port 
-				FROM Friend WHERE id = ?`, id)
+	this.Db.Exec("UPDATE Friend SET host = ?, port = ? WHERE id = ?", host, port, id)
+	row = this.Db.SingleQuery(`
+		SELECT 
+			id, fingerprint, rendezvous, public_key, host, port 
+		FROM Friend 
+		WHERE id = ?`, id)
 	fi := this.decodeFriend(row, false)
-	this.friendsFp[fi.fingerprint.String()] = fi
-	this.friendsId[id] = fi
+	this.friendsByFp[fi.fingerprint.String()] = fi
+	this.friendsById[id] = fi
+	hostKey := fmt.Sprintf("%s:%d", fi.host, fi.port)
+	this.friendsByHost[hostKey] = fi
+	return fi
 }
 
 // Add a new friend, or if the friend exists, update the host and port data.
 func (this *LinkMgr) RemoveFriend(fp *crypto.Digest) {
-	this.cmut.Lock()
-	defer this.cmut.Unlock()
-	fi, ok := this.friendsFp[fp.String()]
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	fi, ok := this.friendsByFp[fp.String()]
 	if !ok {
 		return
 	}
-	for _, f := range this.listeners {
-		f(fi.id, fp, FriendRemoved)
+	for _, onListener := range this.listeners {
+		onListener(fi.id, fp, FriendRemoved)
 	}
 	this.Db.Exec("DELETE FROM FRIEND WHERE id = ?", fi.id)
-	delete(this.friendsFp, fp.String())
-	delete(this.friendsId, fi.id)
+	delete(this.friendsByFp, fp.String())
+	delete(this.friendsById, fi.id)
 }
 
 // Send a request to a friend and get a response
-func (this *LinkMgr) Send(service int, id int, req io.Reader, resp io.Writer) (err error) {
-	url := fmt.Sprintf("http://id_%d:80/h0tb0x/%d", id, service)
-	httpResp, err := this.client.Post(url, "application/binary", req)
+func (this *LinkMgr) Send(service int, id int, req io.Reader, wr io.Writer) error {
+	fi := this.friendsById[id]
+	url := fmt.Sprintf("h0tb0x://%s/h0tb0x/%d", fi.fingerprint, service)
+	resp, err := this.client.Post(url, "application/binary", req)
 	if err != nil {
-		return
+		return err
 	}
-	defer httpResp.Body.Close()
-	if httpResp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("RPC had non 200 http return code: %d", httpResp.StatusCode)
-		return
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("RPC had non 200 http return code: %d", resp.StatusCode)
 	}
-	if httpResp.Header.Get("Content-Type") != "application/binary" {
-		err = fmt.Errorf("Content type mismatch")
-		return
+	if resp.Header.Get("Content-Type") != "application/binary" {
+		return fmt.Errorf("Content type mismatch")
 	}
-	_, err = io.Copy(resp, httpResp.Body)
-	return
+	_, err = io.Copy(wr, resp.Body)
+	return err
 }

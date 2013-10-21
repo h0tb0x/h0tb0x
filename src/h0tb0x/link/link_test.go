@@ -2,38 +2,62 @@ package link
 
 import (
 	"bytes"
-	"fmt"
 	"h0tb0x/base"
 	"h0tb0x/crypto"
 	"h0tb0x/rendezvous"
+	"h0tb0x/test"
 	"io"
 	"io/ioutil"
-	"os"
-	"sync"
+	. "launchpad.net/gocheck"
 	"testing"
 )
+
+// Hook up gocheck into the "go test" runner.
+func Test(t *testing.T) { TestingT(t) }
+
+type TestLinkSuite struct {
+	test.TestMgr
+	rm *rendezvous.RendezvousMgr
+}
+
+func init() {
+	Suite(&TestLinkSuite{})
+}
+
+func (this *TestLinkSuite) SetUpTest(c *C) {
+	this.TestMgr.SetUpTest(c)
+	this.rm = rendezvous.NewRendezvousMgr(this.ConnMgr, 3030, this.GetTempFile())
+	c.Assert(this.rm.Start(), IsNil)
+}
+
+func (this *TestLinkSuite) TearDownTest(c *C) {
+	this.rm.Stop()
+	this.TestMgr.TearDownTest(c)
+}
 
 type TestNode struct {
 	*base.Base
 	Link *LinkMgr
-	wg   sync.WaitGroup
+	c    *C
 }
 
-func NewTestNode(name string, port uint16) *TestNode {
-	base := base.NewBase(name, port)
-	link := NewLinkMgr(base)
-	rendezvous.Publish("localhost:3030", base.Ident, "localhost", port)
-
+func (this *TestLinkSuite) NewTestNode(name string, port uint16) *TestNode {
+	base := this.NewBase(name, port)
+	link := NewLinkMgr(base, this.ConnMgr)
+	rc := rendezvous.NewClient(this.ConnMgr)
+	err := rc.Put("http://localhost:3030", base.Ident, "localhost", port)
+	this.C.Assert(err, IsNil)
 	return &TestNode{
 		Base: base,
 		Link: link,
+		c:    this.C,
 	}
 }
 
-func (this *TestNode) Run() {
+func (this *TestNode) Start() {
 	this.Link.AddListener(this.OnFriendChange)
 	this.Link.AddHandler(0, this.OnData)
-	this.Link.Run()
+	this.c.Assert(this.Link.Start(), IsNil)
 }
 
 func (this *TestNode) Stop() {
@@ -52,38 +76,33 @@ func (this *TestNode) OnFriendChange(id int, fingerprint *crypto.Digest, what Fr
 func (this *TestNode) OnData(id int, fp *crypto.Digest, req io.Reader, resp io.Writer) (err error) {
 	buf, _ := ioutil.ReadAll(req)
 	this.Log.Printf("OnData(%d): %v", id, buf)
-	resp.Write([]byte{1, 2, 3})
+	resp.Write([]byte("123"))
 	return nil
 }
 
-func TestLink(t *testing.T) {
-	os.Remove("/tmp/rtest.db")
-	rm := rendezvous.NewRendezvousMgr(3030, "/tmp/rtest.db")
-	rm.Run()
+func (this *TestLinkSuite) TestLink(c *C) {
+	this.C = c
 
-	alice := NewTestNode("Alice", 10001)
-	alice.Run()
-	bob := NewTestNode("Bob", 10002)
-	bob.Run()
+	alice := this.NewTestNode("A", 10001)
+	alice.Start()
+	bob := this.NewTestNode("B", 10002)
+	bob.Start()
 	CreateLink(alice, bob)
 
-	var b1 bytes.Buffer
-	err := alice.Link.Send(0, 1, bytes.NewBuffer([]byte{4, 5, 6}), &b1)
-	if err != nil {
-		fmt.Printf("Err: %s", err)
-	}
-	alice.Log.Printf("Received: %v", b1.Bytes())
-	var b2 bytes.Buffer
-	_ = alice.Link.Send(0, 1, bytes.NewBuffer([]byte{5, 4, 3}), &b2)
-	alice.Log.Printf("Received: %v", b2.Bytes())
-	err2 := alice.Link.Send(3, 1, bytes.NewBuffer([]byte{5, 4, 3}), &b2)
-	alice.Log.Printf("%s", err2)
+	buf := new(bytes.Buffer)
+	err := alice.Link.Send(0, 1, bytes.NewBuffer([]byte{4, 5, 6}), buf)
+	c.Assert(err, IsNil)
+	c.Assert(buf.String(), Equals, "123")
+
+	buf = new(bytes.Buffer)
+	err = alice.Link.Send(0, 1, bytes.NewBuffer([]byte{5, 4, 3}), buf)
+	c.Assert(err, IsNil)
+	c.Assert(buf.String(), Equals, "123")
+
+	buf = new(bytes.Buffer)
+	err = alice.Link.Send(3, 1, bytes.NewBuffer([]byte{5, 4, 3}), buf)
+	c.Assert(err, ErrorMatches, "*403$")
 
 	alice.Stop()
 	bob.Stop()
-	rm.Stop()
-}
-
-func TestClose(t *testing.T) {
-
 }
