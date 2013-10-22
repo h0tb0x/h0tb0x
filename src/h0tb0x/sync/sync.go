@@ -2,6 +2,7 @@ package sync
 
 import (
 	"bytes"
+	"h0tb0x/base"
 	"h0tb0x/crypto"
 	"h0tb0x/link"
 	"h0tb0x/transfer"
@@ -46,7 +47,7 @@ const (
 type clientLooper struct {
 	sync       *SyncMgr
 	friendId   int
-	lock       sync.Mutex
+	lock       sync.Locker
 	shutdown   chan bool
 	wakeNotify sync.Cond
 	goRoutines sync.WaitGroup
@@ -57,8 +58,9 @@ func newClientLooper(sync *SyncMgr, friendId int) *clientLooper {
 		sync:     sync,
 		friendId: friendId,
 		shutdown: make(chan bool),
+		lock:     base.NewNoisyLocker(sync.Log.Prefix() + "clientLooper "),
 	}
-	cl.wakeNotify.L = &cl.lock
+	cl.wakeNotify.L = cl.lock
 	return cl
 }
 
@@ -168,7 +170,7 @@ type SyncMgr struct {
 	*link.LinkMgr
 	sinks   map[int]func(int, *crypto.Digest, *Record)
 	clients map[string]*clientLooper
-	cmut    sync.RWMutex
+	cmut    base.RWLocker
 }
 
 // Constructs a new SyncMgr, does not start it.
@@ -177,6 +179,7 @@ func NewSyncMgr(thelink *link.LinkMgr) *SyncMgr {
 		LinkMgr: thelink,
 		sinks:   make(map[int]func(int, *crypto.Digest, *Record)),
 		clients: make(map[string]*clientLooper),
+		cmut:    base.NewNoisyLocker(thelink.Log.Prefix() + "sync "),
 	}
 	mgr.AddHandler(link.ServiceNotify, mgr.onNotify)
 	mgr.SetSink(RTSubscribe, mgr.onSubscribe)
@@ -272,7 +275,7 @@ func (this *SyncMgr) Put(record *Record) {
 		panic("Author must be set")
 	}
 	this.Log.Printf("Doing a PUT: topic = %s, key = %s", record.Topic, record.Key)
-	this.cmut.RLock()
+	this.cmut.Lock()
 	for _, client := range this.clients {
 		client.lock.Lock()
 	}
@@ -293,7 +296,7 @@ func (this *SyncMgr) Put(record *Record) {
 		client.wakeNotify.Broadcast()
 		client.lock.Unlock()
 	}
-	this.cmut.RUnlock()
+	this.cmut.Unlock()
 }
 
 // Get the latest record for any author for a specific topic and key and type.

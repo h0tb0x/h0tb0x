@@ -3,6 +3,7 @@ package data
 import (
 	"bytes"
 	"fmt"
+	"h0tb0x/base"
 	"h0tb0x/crypto"
 	"h0tb0x/link"
 	"h0tb0x/meta"
@@ -38,7 +39,7 @@ type DataMgr struct {
 	rand       *rand.Rand
 	dir        string
 	incoming   string
-	lock       gosync.Mutex
+	lock       gosync.Locker
 	download   gosync.Cond
 	goRoutines gosync.WaitGroup
 	isClosing  bool
@@ -251,8 +252,9 @@ func NewDataMgr(dir string, themeta *meta.MetaMgr) *DataMgr {
 		rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 		dir:      dir,
 		incoming: incoming,
+		lock:     base.NewNoisyLocker(themeta.Log.Prefix() + "data "),
 	}
-	dm.download.L = &dm.lock
+	dm.download.L = dm.lock
 	dm.SetSink(sync.RTAdvert, dm.onAdvert)
 	dm.AddHandler(link.ServiceData, dm.onDataGet)
 	dm.AddCallback(dm.onMeta)

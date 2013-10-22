@@ -63,7 +63,7 @@ type LinkMgr struct {
 	friendsByFp   map[string]*friendInfo
 	friendsById   map[int]*friendInfo
 	friendsByHost map[string]*friendInfo
-	mutex         sync.RWMutex
+	mutex         base.RWLocker
 	wait          sync.WaitGroup
 	listeners     []ListenerFunc
 	handlers      map[int]HandlerFunc
@@ -75,8 +75,8 @@ type LinkMgr struct {
 }
 
 // Constructs a new LinkMgr, does not start it.
-func NewLinkMgr(base *base.Base, connMgr conn.ConnMgr) *LinkMgr {
-	cert := base.Ident.TlsCertificate()
+func NewLinkMgr(theBase *base.Base, connMgr conn.ConnMgr) *LinkMgr {
+	cert := theBase.Ident.TlsCertificate()
 
 	serverTls := &tls.Config{
 		Certificates: []tls.Certificate{*cert},
@@ -84,7 +84,7 @@ func NewLinkMgr(base *base.Base, connMgr conn.ConnMgr) *LinkMgr {
 	}
 
 	this := &LinkMgr{
-		Base:          base,
+		Base:          theBase,
 		friendsByFp:   make(map[string]*friendInfo),
 		friendsById:   make(map[int]*friendInfo),
 		friendsByHost: make(map[string]*friendInfo),
@@ -94,12 +94,13 @@ func NewLinkMgr(base *base.Base, connMgr conn.ConnMgr) *LinkMgr {
 			InsecureSkipVerify: true, // We validate by cert hash manually
 		},
 		server: &http.Server{
-			Addr:      fmt.Sprintf(":%d", base.Port),
+			Addr:      fmt.Sprintf(":%d", theBase.Port),
 			TLSConfig: serverTls,
 		},
 		handlers: make(map[int]HandlerFunc),
 		connMgr:  connMgr,
 		rclient:  rendezvous.NewClient(connMgr),
+		mutex:    base.NewNoisyLocker(theBase.Log.Prefix() + "link "),
 	}
 
 	transport := new(http.Transport)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"h0tb0x/base"
 	"h0tb0x/conn"
 	"h0tb0x/crypto"
 	"h0tb0x/data"
@@ -27,7 +28,7 @@ type ApiMgr struct {
 	wait     gosync.WaitGroup
 	port     uint16
 	listener net.Listener
-	mutex    gosync.Mutex
+	mutex    gosync.Locker
 	connMgr  conn.ConnMgr
 }
 
@@ -82,6 +83,7 @@ func NewApiMgr(rshost string, apiPort uint16, data *data.DataMgr, connMgr conn.C
 		server:  server,
 		port:    apiPort,
 		connMgr: connMgr,
+		mutex:   base.NewNoisyLocker(data.Log.Prefix() + "api "),
 	}
 
 	sr := router.PathPrefix("/api").Subrouter()
