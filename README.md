@@ -48,7 +48,7 @@ tar -C /usr/local -xzf go1.1.2.linux-amd64.tar.gz
 
 Update your PATH by adding this to your `$HOME/.profile`:
 ```
-export PATH=$PATH:/usr/local/go/bin
+export PATH=/usr/local/go/bin:$PATH
 ```
 
 ## Building h0tb0x
