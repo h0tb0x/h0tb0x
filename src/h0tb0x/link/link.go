@@ -315,7 +315,7 @@ func (this *LinkMgr) decodeFriend(row db.Row, failed bool) *friendInfo {
 // Kicks off the link manager, presumes Callbacks has been set
 func (this *LinkMgr) Start() error {
 	rows := this.Db.MultiQuery(
-		"SELECT id, fingerprint, rendezvous, public_key, host, port FROM Friend")
+		"SELECT friend_id, fingerprint, rendezvous, public_key, host, port FROM Friend")
 	for rows.Next() {
 		fi := this.decodeFriend(rows, false)
 		this.friendsByFp[fi.fingerprint.String()] = fi
@@ -360,7 +360,7 @@ func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, rendezvous string) {
 	// Make or insert friend
 	result := this.Db.Exec(`
 		INSERT OR IGNORE INTO Friend (
-			id, fingerprint, rendezvous, host
+			friend_id, fingerprint, rendezvous, host
 		) VALUES (
 			NULL, ?, ?, '$'
 		)`,
@@ -368,14 +368,14 @@ func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, rendezvous string) {
 	id64, _ := result.LastInsertId()
 	id := int(id64)
 
-	this.Db.Exec("UPDATE Friend SET rendezvous = ? WHERE id = ?", rendezvous, id)
+	this.Db.Exec("UPDATE Friend SET rendezvous = ? WHERE friend_id = ?", rendezvous, id)
 
 	_, ok := this.friendsByFp[fp.String()]
 	row := this.Db.SingleQuery(`
 		SELECT 
-			id, fingerprint, rendezvous, public_key, host, port 
+			friend_id, fingerprint, rendezvous, public_key, host, port 
 		FROM Friend 
-		WHERE id = ?`, id)
+		WHERE friend_id = ?`, id)
 	fi := this.decodeFriend(row, false)
 	this.friendsByFp[fi.fingerprint.String()] = fi
 	this.friendsById[id] = fi
@@ -391,15 +391,15 @@ func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, rendezvous string) {
 func (this *LinkMgr) UpdateHostData(fp *crypto.Digest, host string, port uint16) *friendInfo {
 	this.mutex.Lock()
 	defer this.mutex.Unlock()
-	row := this.Db.SingleQuery("SELECT id FROM Friend WHERE fingerprint = ?", fp.Bytes())
+	row := this.Db.SingleQuery("SELECT friend_id FROM Friend WHERE fingerprint = ?", fp.Bytes())
 	var id int
 	this.Db.Scan(row, &id)
-	this.Db.Exec("UPDATE Friend SET host = ?, port = ? WHERE id = ?", host, port, id)
+	this.Db.Exec("UPDATE Friend SET host = ?, port = ? WHERE friend_id = ?", host, port, id)
 	row = this.Db.SingleQuery(`
 		SELECT 
-			id, fingerprint, rendezvous, public_key, host, port 
+			friend_id, fingerprint, rendezvous, public_key, host, port 
 		FROM Friend 
-		WHERE id = ?`, id)
+		WHERE friend_id = ?`, id)
 	fi := this.decodeFriend(row, false)
 	this.friendsByFp[fi.fingerprint.String()] = fi
 	this.friendsById[id] = fi
@@ -419,7 +419,7 @@ func (this *LinkMgr) RemoveFriend(fp *crypto.Digest) {
 	for _, onListener := range this.listeners {
 		onListener(fi.id, fp, FriendRemoved)
 	}
-	this.Db.Exec("DELETE FROM FRIEND WHERE id = ?", fi.id)
+	this.Db.Exec("DELETE FROM Friend WHERE friend_id = ?", fi.id)
 	delete(this.friendsByFp, fp.String())
 	delete(this.friendsById, fi.id)
 }

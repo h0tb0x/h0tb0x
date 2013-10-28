@@ -4,6 +4,7 @@ import (
 	_ "code.google.com/p/go-sqlite/go1/sqlite3"
 	"database/sql"
 	"fmt"
+	"log"
 )
 
 var (
@@ -14,6 +15,7 @@ var (
 type Database struct {
 	db      *sql.DB
 	version int
+	log     *log.Logger
 }
 
 type Schema struct {
@@ -28,7 +30,7 @@ type Row interface {
 }
 
 // Makes or opens a database at the path specified.
-func NewDatabase(path, name string) *Database {
+func NewDatabase(path, name string, log *log.Logger) *Database {
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		panic(err)
@@ -37,7 +39,7 @@ func NewDatabase(path, name string) *Database {
 	if !ok {
 		panic(fmt.Errorf("Unknown schema: %q", name))
 	}
-	this := &Database{db: db}
+	this := &Database{db: db, log: log}
 	this.apply(schema)
 	return this
 }
@@ -48,14 +50,14 @@ func (this *Database) apply(schema *Schema) {
 	this.Scan(row, &version)
 	if version == 0 {
 		// initial install, use latest schema
-		fmt.Printf("Installing latest schema %q\n", schema.name)
+		this.log.Printf("Installing latest schema %q\n", schema.name)
 		this.Exec(schema.latest)
 		this.db.Exec(fmt.Sprintf("PRAGMA user_version = %d;", len(schema.migrations)))
 	} else {
 		row := this.SingleQuery("PRAGMA user_version")
 		this.Scan(row, &this.version)
 
-		fmt.Printf("Schema %q version is: %d\n", schema.name, this.version)
+		this.log.Printf("Schema %q version is: %d\n", schema.name, this.version)
 		this.migrate(schema)
 	}
 	row = this.SingleQuery("PRAGMA user_version")
@@ -63,7 +65,7 @@ func (this *Database) apply(schema *Schema) {
 
 	if version != this.version {
 		this.version = version
-		fmt.Printf("Schema %q now at version: %d\n", schema.name, this.version)
+		this.log.Printf("Schema %q now at version: %d\n", schema.name, this.version)
 	}
 }
 
@@ -77,14 +79,14 @@ func (this *Database) migrate(schema *Schema) {
 		this.db.Exec("PRAGMA user_version = 1;")
 		this.version = 1
 	}
-	fmt.Printf("Migrating schema %q from version %d to version %d\n",
+	this.log.Printf("Migrating schema %q from version %d to version %d\n",
 		schema.name, this.version, target)
 	tx, err := this.db.Begin()
 	if err != nil {
 		panic(err)
 	}
 	for i := this.version; i < target; i++ {
-		fmt.Printf("Applying version %d\n", i+1)
+		this.log.Printf("Applying version %d\n", i+1)
 		sql := schema.migrations[i]
 		_, err := tx.Exec(sql)
 		if err != nil {

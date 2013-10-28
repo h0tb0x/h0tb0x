@@ -56,11 +56,12 @@ func (this *TestMgr) GetTempDir() string {
 }
 
 func (this *TestMgr) NewBase(name string, port uint16) *base.Base {
+	log := log.New(os.Stderr, fmt.Sprintf("[%v] ", name), log.LstdFlags|log.Lshortfile)
 	return &base.Base{
-		Log:   log.New(os.Stderr, fmt.Sprintf("[%v] ", name), log.LstdFlags),
+		Log:   log,
 		Ident: crypto.NewSecretIdentity(""),
 		Port:  port,
-		Db:    db.NewDatabase(this.GetTempFile(), "h0tb0x"),
+		Db:    db.NewDatabase(this.GetTempFile(), "h0tb0x", log),
 	}
 }
 

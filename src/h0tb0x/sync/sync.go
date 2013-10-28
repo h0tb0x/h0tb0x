@@ -33,6 +33,7 @@ const (
 	RTWriter    = 2 // Used by the meta-data layer to manage writer
 	RTData      = 3 // Used by the meta-data layer to manage meta-data
 	RTAdvert    = 4 // Used by the data layer to manage storage
+	RTInvite    = 5 // Used by the api layer to manage invitations
 )
 
 type dataMesg struct {
@@ -104,9 +105,12 @@ func (this *clientLooper) notifyLoop() {
 	for !this.isClosing() {
 		this.sync.Log.Printf("Looking for things to notify\n")
 		sql := `
-			SELECT o.topic, o.seqno, o.key, o.value, o.type, o.author, o.priority, o.signature
-			FROM Object o, TopicFriend tf
-				WHERE o.topic = tf.topic AND
+			SELECT 
+				t.topic_id, t.name, o.seqno, o.key, o.value, o.type, o.author, o.priority, o.signature
+			FROM Object o
+				JOIN TopicFriend tf USING (topic_id)
+				JOIN Topic t USING (topic_id)
+			WHERE 
 				tf.friend_id = ? AND
 				tf.desired = 1 AND tf.requested = 1 AND
 				o.seqno > tf.acked_seqno
@@ -115,18 +119,20 @@ func (this *clientLooper) notifyLoop() {
 
 		rows := this.sync.Db.MultiQuery(sql, this.friendId)
 		data := []dataMesg{}
-		orm := make(map[string]int)
+		orm := make(map[int]int)
 		for rows.Next() {
 			var m dataMesg
 			var tmp []byte
-			this.sync.Db.Scan(rows, &m.Topic, &m.Seqno, &m.Key, &m.Value,
+			var topicId int
+			this.sync.Db.Scan(rows,
+				&topicId, &m.Topic, &m.Seqno, &m.Key, &m.Value,
 				&m.RecordType, &tmp, &m.Priority, &m.Signature)
 			m.Author = string(tmp)
-			orm[m.Topic] = m.Seqno
+			orm[topicId] = m.Seqno
 			data = append(data, m)
 		}
 		if len(data) > 0 {
-			this.sync.Log.Printf("Doing an notify of %d rows\n", len(data))
+			this.sync.Log.Printf("Notify %d rows\n", len(data))
 			this.lock.Unlock()
 			var send_buf, recv_buf bytes.Buffer
 			transfer.Encode(&send_buf, data)
@@ -135,10 +141,13 @@ func (this *clientLooper) notifyLoop() {
 			if err != nil {
 				continue
 			}
-			for topic, seqno := range orm {
+			for topicId, seqno := range orm {
 				// Mark that we did the notify
-				this.sync.Db.Exec("UPDATE TopicFriend SET acked_seqno = ? WHERE friend_id = ? AND topic = ?",
-					seqno, this.friendId, topic)
+				this.sync.Db.Exec(`
+					UPDATE TopicFriend 
+					SET acked_seqno = ? 
+					WHERE friend_id = ? AND topic_id = ?`,
+					seqno, this.friendId, topicId)
 			}
 		} else {
 			this.sync.Log.Printf("No notifies, sleeping\n")
@@ -211,55 +220,76 @@ func (this *SyncMgr) onNotify(remote int, fp *crypto.Digest, in io.Reader, out i
 	}
 
 	// Find client
-	this.cmut.Lock()
-	cl, ok := this.clients[fp.String()]
-	this.cmut.Unlock()
-
-	if !ok {
+	client := this.getClient(fp)
+	if client == nil {
 		this.Log.Printf("Receiving notify from non-friend, ignoring")
+		return nil
 	}
 
 	for _, mesg := range mesgs {
-		this.Log.Printf("Received data, topic = %s, key = %s", mesg.Topic, mesg.Key)
-		row := this.Db.SingleQuery(`SELECT heard_seqno FROM TopicFriend 
-					WHERE topic = ? AND friend_id = ? AND desired = 1`,
+		this.Log.Printf("onNotify: %s, %q", mesg.Topic, mesg.Key)
+		row := this.Db.SingleQuery(`
+			SELECT tf.heard_seqno, t.topic_id
+			FROM TopicFriend tf
+				JOIN Topic t USING (topic_id)
+			WHERE t.name = ? AND tf.friend_id = ? AND tf.desired = 1`,
 			mesg.Topic, remote)
-		var prev_seq int
-		if !this.Db.MaybeScan(row, &prev_seq) {
+		var prev_seq, topicId int
+		if !this.Db.MaybeScan(row, &prev_seq, &topicId) {
 			continue
 		}
 		sink, ok := this.sinks[mesg.RecordType]
 		if !ok || prev_seq >= mesg.Seqno {
 			continue
 		}
-		sink(cl.friendId, fp, &mesg.Record)
-		this.Db.Exec("Update TopicFriend SET heard_seqno = ? WHERE topic = ? AND friend_id = ?",
-			mesg.Seqno, mesg.Topic, remote)
+		sink(client.friendId, fp, &mesg.Record)
+		this.Db.Exec(`
+			UPDATE TopicFriend 
+			SET heard_seqno = ? 
+			WHERE topic_id = ? AND friend_id = ?`,
+			mesg.Seqno, topicId, remote)
 	}
 	return nil
 }
 
-func (this *SyncMgr) onFriendChange(id int, fp *crypto.Digest, what link.FriendStatus) {
+func (this *SyncMgr) addTopic(topic string) int {
+	this.Db.Exec("INSERT OR IGNORE INTO Topic (name) VALUES (?)", topic)
+	row := this.Db.SingleQuery("SELECT topic_id FROM Topic WHERE name = ?", topic)
+	var topicId int
+	this.Db.Scan(row, &topicId)
+	return topicId
+}
+
+func (this *SyncMgr) addTopicFriend(topic string, friendId int, desired, requested bool) int {
+	topicId := this.addTopic(topic)
+	this.Db.Exec(`
+		INSERT OR IGNORE INTO TopicFriend 
+			(topic_id, friend_id, desired, requested) 
+		VALUES 
+			(?, ?, ?, ?)`,
+		topicId, friendId, desired, requested)
+	return topicId
+}
+
+func (this *SyncMgr) onFriendChange(friendId int, fp *crypto.Digest, what link.FriendStatus) {
 	this.cmut.Lock()
+	defer this.cmut.Unlock()
 	if what == link.FriendStartup || what == link.FriendAdded {
 		this.Log.Printf("Adding friend: %s", fp.String())
 		myFp := this.Ident.Public().Fingerprint()
 		// create inbox
-		this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (topic, friend_id, desired, requested) VALUES (?, ?, ?, ?)",
-			crypto.HashOf(fp, myFp).String(), id, 1, 1)
+		this.addTopicFriend(crypto.HashOf(fp, myFp).String(), friendId, true, true)
 		// create outbox
-		this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (topic, friend_id, desired, requested) VALUES (?, ?, ?, ?)",
-			crypto.HashOf(myFp, fp).String(), id, 1, 1)
-		cl := newClientLooper(this, id)
-		this.clients[fp.String()] = cl
-		cl.run()
+		this.addTopicFriend(crypto.HashOf(myFp, fp).String(), friendId, true, true)
+		client := newClientLooper(this, friendId)
+		this.clients[fp.String()] = client
+		client.run()
 	} else {
-		cl := this.clients[fp.String()]
-		cl.stop()
+		client := this.clients[fp.String()]
+		client.stop()
 		delete(this.clients, fp.String())
-		this.Db.Exec("DELETE INTO TopicFriend WHERE friend_id = ?", id)
+		this.Db.Exec("DELETE FROM TopicFriend WHERE friend_id = ?", friendId)
 	}
-	this.cmut.Unlock()
 }
 
 // Put a record for synchronization to friends subscribed to the topic of the record.
@@ -274,17 +304,18 @@ func (this *SyncMgr) Put(record *Record) {
 	if record.Author == "" {
 		panic("Author must be set")
 	}
-	this.Log.Printf("Doing a PUT: topic = %s, key = %s", record.Topic, record.Key)
+	this.Log.Printf("PUT: %s, %q", record.Topic, record.Key)
 	this.cmut.Lock()
 	for _, client := range this.clients {
 		client.lock.Lock()
 	}
+	topicId := this.addTopic(record.Topic)
 	this.Db.Exec(`
 		REPLACE INTO Object
-			(seqno, topic, key, value, type, author, priority, signature)
+			(seqno, topic_id, key, value, type, author, priority, signature)
 		VALUES
 			(IFNULL((SELECT MAX(seqno) FROM Object), 0)+1, ?, ?, ?, ?, ?, ?, ?)`,
-		record.Topic,
+		topicId,
 		record.Key,
 		record.Value,
 		record.RecordType,
@@ -302,10 +333,11 @@ func (this *SyncMgr) Put(record *Record) {
 // Get the latest record for any author for a specific topic and key and type.
 func (this *SyncMgr) Get(recordType int, topic, key string) *Record {
 	query := `
-		SELECT topic, key, value, type, author, priority, signature
-		FROM Object
-		WHERE topic = ? AND key = ? AND type = ?
-		ORDER BY priority DESC 
+		SELECT t.name, o.key, o.value, o.type, o.author, o.priority, o.signature
+		FROM Object o
+			JOIN Topic t USING (topic_id)
+		WHERE t.name = ? AND o.key = ? AND o.type = ?
+		ORDER BY o.priority DESC 
 		LIMIT 1`
 	row := this.Db.SingleQuery(query, topic, key, recordType)
 	var record Record
@@ -322,10 +354,11 @@ func (this *SyncMgr) Get(recordType int, topic, key string) *Record {
 // Get the latest record for a specific author, topic, key and type.
 func (this *SyncMgr) GetAuthor(recordType int, topic, key, author string) *Record {
 	query := `
-		SELECT topic, key, value, type, author, priority, signature
-		FROM Object
-		WHERE author = ? AND topic = ? AND key = ? AND type = ?
-		ORDER BY priority DESC 
+		SELECT t.name, o.key, o.value, o.type, o.author, o.priority, o.signature
+		FROM Object o
+			JOIN Topic t USING (topic_id)
+		WHERE o.author = ? AND t.name = ? AND o.key = ? AND o.type = ?
+		ORDER BY o.priority DESC 
 		LIMIT 1`
 	row := this.Db.SingleQuery(query, author, topic, key, recordType)
 	var tmp []byte
@@ -339,24 +372,33 @@ func (this *SyncMgr) GetAuthor(recordType int, topic, key, author string) *Recor
 	return &record
 }
 
+func (this *SyncMgr) getClient(fp *crypto.Digest) *clientLooper {
+	this.cmut.RLock()
+	defer this.cmut.RUnlock()
+	return this.clients[fp.String()]
+}
+
 // Update the subscription state for a topic on a particular friend.
 func (this *SyncMgr) Subscribe(id *crypto.Digest, topic string, enable bool) bool {
-	this.cmut.RLock()
-	client, ok := this.clients[id.String()]
-	this.cmut.RUnlock()
-	if !ok {
+	client := this.getClient(id)
+	if client == nil {
 		return false
 	}
 
 	client.lock.Lock()
-	this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (friend_id, topic) VALUES (?, ?)",
-		client.friendId, topic)
+	topicId := this.addTopicFriend(topic, client.friendId, false, false)
+	this.Db.Exec(`
+		UPDATE TopicFriend 
+		SET desired = ? 
+		WHERE friend_id = ? AND topic_id = ?`,
+		enable, client.friendId, topicId)
+	row := this.Db.SingleQuery(`
+		SELECT heard_seqno 
+		FROM TopicFriend 
+		WHERE friend_id = ? AND topic_id = ?`,
+		client.friendId, topicId)
+	client.lock.Unlock()
 
-	this.Db.Exec("UPDATE TopicFriend SET desired = ? WHERE friend_id = ? AND topic = ?",
-		enable, client.friendId, topic)
-
-	row := this.Db.SingleQuery("SELECT heard_seqno FROM TopicFriend WHERE friend_id = ? AND topic = ?",
-		client.friendId, topic)
 	var heard int
 	this.Db.Scan(row, &heard)
 
@@ -365,7 +407,7 @@ func (this *SyncMgr) Subscribe(id *crypto.Digest, topic string, enable bool) boo
 		enbyte = 1
 	}
 	myFp := this.Ident.Public().Fingerprint()
-	client.lock.Unlock()
+
 	this.Put(&Record{
 		RecordType: RTSubscribe,
 		Topic:      crypto.HashOf(myFp, id).String(),
@@ -379,19 +421,18 @@ func (this *SyncMgr) Subscribe(id *crypto.Digest, topic string, enable bool) boo
 }
 
 func (this *SyncMgr) onSubscribe(id int, fp *crypto.Digest, rec *Record) {
-	this.cmut.RLock()
-	client, ok := this.clients[fp.String()]
-	this.cmut.RUnlock()
-	if !ok {
+	client := this.getClient(fp)
+	if client == nil {
 		return
 	}
 	client.lock.Lock()
-	this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (friend_id, topic) VALUES (?, ?)",
-		client.friendId, rec.Key)
-
+	topicId := this.addTopicFriend(rec.Key, client.friendId, false, false)
 	enable := (rec.Value[0] != 0)
-	this.Db.Exec("UPDATE TopicFriend SET requested = ?, acked_seqno = ? WHERE friend_id = ? AND topic = ?",
-		enable, rec.Priority, id, rec.Key)
+	this.Db.Exec(`
+		UPDATE TopicFriend 
+		SET requested = ?, acked_seqno = ? 
+		WHERE friend_id = ? AND topic_id = ?`,
+		enable, rec.Priority, client.friendId, topicId)
 	client.wakeNotify.Broadcast()
 	client.lock.Unlock()
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -32,18 +33,26 @@ type ApiMgr struct {
 	connMgr  conn.ConnMgr
 }
 
-type SelfJson struct {
+type PassportJson struct {
+	Passport string `json:"passport"`
+}
+
+type IdentityJson struct {
 	Id         string `json:"id"`
 	Rendezvous string `json:"rendezvous"`
 	PublicKey  string `json:"publicKey"`
 	Passport   string `json:"passport"`
 	Host       string `json:"host"`
 	Port       uint16 `json:"port"`
-	SelfCid    string `json:"selfCid"`
+}
+
+type SelfJson struct {
+	IdentityJson
+	SelfCid string `json:"selfCid"`
 }
 
 type FriendJson struct {
-	SelfJson
+	IdentityJson
 	SendCid string `json:"sendCid"`
 	RecvCid string `json:"recvCid"`
 }
@@ -58,9 +67,10 @@ type CollectionItemJson struct {
 }
 
 type InviteJson struct {
-	Cid    string `json:"cid"`
-	Friend string `json:"friend"`
-	Remove bool   `json:",omitempty"`
+	Cid        string            `json:"cid"`
+	From       string            `json:"from"`
+	Remove     bool              `json:",omitempty"`
+	Attributes map[string]string `json:"attributes"`
 }
 
 type WriterJson struct {
@@ -168,22 +178,21 @@ func (this *ApiMgr) Stop() {
 	this.DataMgr.Stop()
 }
 
-func (this *ApiMgr) sendJson(w http.ResponseWriter, obj interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
+func (this *ApiMgr) sendJson(resp http.ResponseWriter, obj interface{}) {
+	resp.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(resp)
 	enc.Encode(obj)
 }
 
-func (this *ApiMgr) sendError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	enc := json.NewEncoder(w)
+func (this *ApiMgr) sendError(resp http.ResponseWriter, status int, message string) {
+	resp.Header().Set("Content-Type", "application/json")
+	resp.WriteHeader(status)
+	enc := json.NewEncoder(resp)
 	enc.Encode(message)
 }
 
 func (this *ApiMgr) decodeWho(req *http.Request) *crypto.Digest {
-	vars := mux.Vars(req)
-	friendStr := vars["who"]
+	friendStr := mux.Vars(req)["who"]
 	var fp *crypto.Digest
 	err := transfer.DecodeString(friendStr, &fp)
 	if err != nil {
@@ -192,16 +201,15 @@ func (this *ApiMgr) decodeWho(req *http.Request) *crypto.Digest {
 	return fp
 }
 
-func (this *ApiMgr) decodeJsonBody(w http.ResponseWriter, req *http.Request, out interface{}) bool {
+func (this *ApiMgr) decodeJsonBody(resp http.ResponseWriter, req *http.Request, out interface{}) bool {
 	contentType := req.Header.Get("Content-Type")
 	if !strings.Contains(contentType, "application/json") {
-		this.sendError(w, http.StatusBadRequest, "Invalid content type")
+		this.sendError(resp, http.StatusBadRequest, "Invalid content type")
 		return false
 	}
-	dec := json.NewDecoder(req.Body)
-	err := dec.Decode(out)
+	err := json.NewDecoder(req.Body).Decode(out)
 	if err != nil {
-		this.sendError(w, http.StatusBadRequest, "Unable to decode JSON")
+		this.sendError(resp, http.StatusBadRequest, "Unable to decode JSON")
 		return false
 	}
 	return true
@@ -216,26 +224,29 @@ func (this *ApiMgr) SetExt(host net.IP, port uint16) {
 	this.rclient.Put("http://"+this.rshost, this.Ident, this.extHost, this.extPort)
 }
 
-func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) getSelf(resp http.ResponseWriter, req *http.Request) {
 	myFp := this.Ident.Public().Fingerprint()
 	myCid := crypto.HashOf(myFp, myFp).String()
 
 	this.mutex.Lock()
 	passport := transfer.AsString(myFp, this.rshost)
 	json := SelfJson{
-		Id:         myFp.String(),
-		Rendezvous: this.rshost,
-		PublicKey:  transfer.AsString(this.Ident.Public()),
-		Passport:   passport,
-		Host:       this.extHost,
-		Port:       this.extPort,
-		SelfCid:    myCid,
+		IdentityJson: IdentityJson{
+			Id:         myFp.String(),
+			Rendezvous: this.rshost,
+			PublicKey:  transfer.AsString(this.Ident.Public()),
+			Passport:   passport,
+			Host:       this.extHost,
+			Port:       this.extPort,
+		},
+		SelfCid: myCid,
 	}
 	this.mutex.Unlock()
-	this.sendJson(w, json)
+	this.sendJson(resp, json)
 }
 
-func (this *ApiMgr) populateFriend(json *FriendJson, myFp, fp *crypto.Digest, keyBin []byte) {
+func (this *ApiMgr) populateFriend(json *FriendJson, fp *crypto.Digest, keyBin []byte) {
+	myFp := this.Ident.Public().Fingerprint()
 	json.Id = fp.String()
 	if keyBin != nil {
 		var key *crypto.PublicIdentity
@@ -247,14 +258,15 @@ func (this *ApiMgr) populateFriend(json *FriendJson, myFp, fp *crypto.Digest, ke
 		json.Host = ""
 	}
 	json.Passport = transfer.AsString(fp, json.Rendezvous)
-	json.SelfCid = crypto.HashOf(fp, fp).String()
+	// json.SelfCid = crypto.HashOf(fp, fp).String()
 	json.SendCid = crypto.HashOf(myFp, fp).String()
 	json.RecvCid = crypto.HashOf(fp, myFp).String()
 }
 
-func (this *ApiMgr) getFriends(w http.ResponseWriter, req *http.Request) {
-	myFp := this.Ident.Public().Fingerprint()
-	rows := this.Db.MultiQuery("SELECT fingerprint, rendezvous, public_key, host, port FROM Friend")
+func (this *ApiMgr) getFriends(resp http.ResponseWriter, req *http.Request) {
+	rows := this.Db.MultiQuery(`
+		SELECT fingerprint, rendezvous, public_key, host, port 
+		FROM Friend`)
 	out := []FriendJson{}
 	for rows.Next() {
 		var json FriendJson
@@ -263,80 +275,49 @@ func (this *ApiMgr) getFriends(w http.ResponseWriter, req *http.Request) {
 		this.Db.Scan(rows, &fpb, &json.Rendezvous, &pubkey, &json.Host, &json.Port)
 		var fp *crypto.Digest
 		transfer.DecodeBytes(fpb, &fp)
-		this.populateFriend(&json, myFp, fp, pubkey)
+		this.populateFriend(&json, fp, pubkey)
 		out = append(out, json)
 	}
-	this.sendJson(w, out)
+	this.sendJson(resp, out)
 }
 
-func (this *ApiMgr) getFriend(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) getFriend(resp http.ResponseWriter, req *http.Request) {
 	fp := this.decodeWho(req)
 	if fp == nil {
-		this.sendError(w, http.StatusBadRequest, "Invalid friend id")
+		this.sendError(resp, http.StatusBadRequest, "Invalid friend id")
 		return
 	}
-	row := this.Db.SingleQuery("SELECT id, rendezvous, public_key, host, port FROM Friend WHERE fingerprint = ?", fp.Bytes())
+	row := this.Db.SingleQuery(`
+		SELECT friend_id, rendezvous, public_key, host, port 
+		FROM Friend 
+		WHERE fingerprint = ?`, fp.Bytes())
 	var json FriendJson
 	var pubkey []byte
 	if !this.Db.MaybeScan(row, &json.Id, &json.Rendezvous, &pubkey, &json.Host, &json.Port) {
-		this.sendError(w, http.StatusNotFound, "Unknown friend")
+		this.sendError(resp, http.StatusNotFound, "Unknown friend")
 		return
 	}
-	myFp := this.Ident.Public().Fingerprint()
-	this.populateFriend(&json, myFp, fp, pubkey)
-	this.sendJson(w, json)
+	this.populateFriend(&json, fp, pubkey)
+	this.sendJson(resp, json)
 }
 
-func (this *ApiMgr) postFriends(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) postFriends(resp http.ResponseWriter, req *http.Request) {
 	// Get Json
-	var json *SelfJson
-	if !this.decodeJsonBody(w, req, &json) {
+	var json *PassportJson
+	if !this.decodeJsonBody(resp, req, &json) {
 		return
 	}
-	friend := this.doPutFriend(w, req, json)
-	if friend != nil {
-		this.sendJson(w, friend)
-	}
-}
-
-func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *SelfJson) *FriendJson {
 	var fp *crypto.Digest
 	var rendezvous string
-
 	err := transfer.DecodeString(json.Passport, &fp, &rendezvous)
-	if err == nil {
-		// If Passport decodes, validate consistency
-		if json.Id != "" && json.Id != fp.String() {
-			this.sendError(w, http.StatusBadRequest, "Friend ID's are inconsistent")
-			return nil
-		}
-		if json.Rendezvous != "" && json.Rendezvous != rendezvous {
-			this.sendError(w, http.StatusBadRequest, "Rendezvous addresses are inconsistent")
-			return nil
-		}
-	} else {
-		// If not, try getting the fields from other places
-		rendezvous = json.Rendezvous
-		err = transfer.DecodeString(json.Id, &fp)
-		if err != nil || rendezvous == "" {
-			this.sendError(w, http.StatusBadRequest, "Missing required fields")
-			return nil
-		}
+	if err != nil {
+		this.sendError(resp, http.StatusBadRequest, "Invalid passport")
+		return
 	}
 
-	if fp.String() == this.Ident.Public().Fingerprint().String() {
-		this.sendError(w, http.StatusBadRequest, "Can not friend self")
-		return nil
-	}
-
-	// Now validate the public key if it exist
-	var pubkey *crypto.PublicIdentity
-	if json.PublicKey != "" {
-		err = transfer.DecodeString(json.PublicKey, &pubkey)
-		if err != nil || pubkey.Fingerprint().String() != fp.String() {
-			this.sendError(w, http.StatusBadRequest, "Public key is inconsitent")
-			return nil
-		}
+	if fp.Equal(this.Ident.Public().Fingerprint()) {
+		this.sendError(resp, http.StatusBadRequest, "Self passport")
+		return
 	}
 
 	// By this point, everything is consistent and fp & rendezvous are valid
@@ -344,44 +325,33 @@ func (this *ApiMgr) doPutFriend(w http.ResponseWriter, req *http.Request, json *
 	this.AddUpdateFriend(fp, rendezvous)
 	this.CreateSpecialCollection(this.Ident, fp)
 
-	// Now check to see if we are getting host and port, in which case update them
-	if json.Host != "" && json.Port != 0 {
-		// If so, update them
-		this.UpdateHostData(fp, json.Host, json.Port)
-	}
-
-	// If public key exists, add it
-	// TODO: Actually write AddPublicKey and enable code
-	//if (pubkey != nil) {
-	//	this.AddPublicKey(fp, pubkey)
-	//}
-
-	json.Id = fp.String()
-	json.Rendezvous = rendezvous
 	result := &FriendJson{
-		SelfJson: *json,
-		SendCid:  "",
-		RecvCid:  "",
+		IdentityJson: IdentityJson{
+			Rendezvous: rendezvous,
+		},
 	}
-	myFp := this.Ident.Public().Fingerprint()
-	// FIXME: how do we get pubkey to be passed in to populateFriend()?
-	this.populateFriend(result, myFp, fp, nil)
-	return result
+	this.populateFriend(result, fp, nil)
+	this.sendJson(resp, result)
 }
 
-func (this *ApiMgr) deleteFriend(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) deleteFriend(resp http.ResponseWriter, req *http.Request) {
 	fp := this.decodeWho(req)
 	if fp == nil {
-		this.sendError(w, http.StatusBadRequest, "Invalid friend id")
+		this.sendError(resp, http.StatusBadRequest, "Invalid friend id")
 		return
 	}
 	// TODO: Remove friend collection?
 	this.RemoveFriend(fp)
 }
 
-func (this *ApiMgr) getCollections(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) getCollections(resp http.ResponseWriter, req *http.Request) {
 	// FIXME: we call GetOwner() on each record which results in another query
-	rows := this.Db.MultiQuery("SELECT topic FROM Object WHERE type = ? AND key = ? GROUP BY topic",
+	rows := this.Db.MultiQuery(`
+		SELECT t.name 
+		FROM Object o
+			JOIN Topic t USING (topic_id)
+		WHERE o.type = ? AND o.key = ? 
+		GROUP BY t.name`,
 		sync.RTBasis, "$")
 	out := []CollectionJson{}
 	for rows.Next() {
@@ -393,42 +363,46 @@ func (this *ApiMgr) getCollections(w http.ResponseWriter, req *http.Request) {
 		}
 		out = append(out, json)
 	}
-	this.sendJson(w, out)
+	this.sendJson(resp, out)
 }
 
-func (this *ApiMgr) getCollection(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) getCollection(resp http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	owner := this.GetOwner(cid)
 	if owner == nil {
-		this.sendError(w, http.StatusNotFound, "No such collection")
+		this.sendError(resp, http.StatusNotFound, "No such collection")
 		return
 	}
 	json := &CollectionJson{
 		Id:    cid,
 		Owner: owner.Fingerprint().String(),
 	}
-	this.sendJson(w, json)
+	this.sendJson(resp, json)
 }
 
-func (this *ApiMgr) addCollection(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) addCollection(resp http.ResponseWriter, req *http.Request) {
 	cid := this.CreateNewCollection(this.Ident)
 	json := &CollectionJson{
 		Id:    cid,
 		Owner: this.GetOwner(cid).Fingerprint().String(),
 	}
-	this.sendJson(w, json)
+	this.sendJson(resp, json)
 }
 
-func (this *ApiMgr) getWriters(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) getWriters(resp http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	basisRec := this.SyncMgr.Get(sync.RTBasis, cid, "$")
 	if basisRec == nil {
-		this.sendError(w, http.StatusNotFound, "No such collection")
+		this.sendError(resp, http.StatusNotFound, "No such collection")
 		return
 	}
-	rows := this.Db.MultiQuery("SELECT key, value FROM Object WHERE topic = ? AND type = ?",
+	rows := this.Db.MultiQuery(`
+		SELECT o.key, o.value 
+		FROM Object o
+			JOIN Topic t USING (topic_id)
+		WHERE t.name = ? AND type = ?`,
 		cid, sync.RTWriter)
 	out := []WriterJson{}
 	for rows.Next() {
@@ -440,194 +414,225 @@ func (this *ApiMgr) getWriters(w http.ResponseWriter, req *http.Request) {
 			out = append(out, json)
 		}
 	}
-	this.sendJson(w, out)
+	this.sendJson(resp, out)
 }
 
-func (this *ApiMgr) getWriter(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) getWriter(resp http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	who := vars["who"]
 	pubKey := this.GetWriter(cid, who)
 	if pubKey == nil {
-		this.sendError(w, http.StatusNotFound, "No such writer")
+		this.sendError(resp, http.StatusNotFound, "No such writer")
 		return
 	}
 	json := WriterJson{
 		Id:     who,
 		PubKey: transfer.AsString(pubKey),
 	}
-	this.sendJson(w, json)
+	this.sendJson(resp, json)
 }
 
-func (this *ApiMgr) addWriter(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) addWriter(resp http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	var keystr string
-	if !this.decodeJsonBody(w, req, &keystr) {
+	if !this.decodeJsonBody(resp, req, &keystr) {
 		return
 	}
 	var pubkey *crypto.PublicIdentity
 	err := transfer.DecodeString(keystr, &pubkey)
 	if err != nil {
-		this.sendError(w, http.StatusBadRequest, "Invalid public key")
+		this.sendError(resp, http.StatusBadRequest, "Invalid public key")
 		return
 	}
 	owner := this.GetOwner(cid)
 	if owner == nil {
-		this.sendError(w, http.StatusNotFound, "Collection invalid")
+		this.sendError(resp, http.StatusNotFound, "Collection invalid")
 		return
 	}
-	if owner.Fingerprint().String() != this.Ident.Public().Fingerprint().String() {
-		this.sendError(w, http.StatusUnauthorized, "You are not the owner of the collection")
+	if !owner.Fingerprint().Equal(this.Ident.Public().Fingerprint()) {
+		this.sendError(resp, http.StatusUnauthorized, "You are not the owner of the collection")
 		return
 	}
 	this.AddWriter(cid, this.Ident, pubkey)
-	this.sendJson(w, "/collections/"+cid+"/writers/"+pubkey.Fingerprint().String())
+	this.sendJson(resp, "/collections/"+cid+"/writers/"+pubkey.Fingerprint().String())
 }
 
-func (this *ApiMgr) deleteWriter(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) deleteWriter(resp http.ResponseWriter, req *http.Request) {
 	// Make sure I'm the owner
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	who := vars["who"]
 	owner := this.GetOwner(cid)
 	if owner == nil {
-		this.sendError(w, http.StatusNotFound, "Collection invalid")
+		this.sendError(resp, http.StatusNotFound, "Collection invalid")
 		return
 	}
 	if owner.Fingerprint().String() != this.Ident.Public().Fingerprint().String() {
-		this.sendError(w, http.StatusUnauthorized, "You are not the owner of the collection")
+		this.sendError(resp, http.StatusUnauthorized, "You are not the owner of the collection")
 		return
 	}
 	this.RemoveWriter(cid, this.Ident, who)
 }
 
-func (this *ApiMgr) getInvites(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) getInvites(resp http.ResponseWriter, req *http.Request) {
+	// rows := this.Db.MultiQuery(`
+	// 	SELECT
+	// 		t.name,
+	// 		o.key,
+	// 		o.value
+	// 	FROM
+	// 		Object o
+	// 		JOIN Attribute a USING(oid)
+	// 		JOIN TopicGroup g USING(tid)
+	// 		JOIN Topic t USING(tid)
+	// 	WHERE
+	// 		g.name = ? AND
+	// 		a.name = ? AND
+	// 		a.value = ?
+	// `, cid, sync.RTWriter)
 }
 
-func (this *ApiMgr) postInvite(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) postInvite(resp http.ResponseWriter, req *http.Request) {
+}
+
+func (this *ApiMgr) postFriendInvite(resp http.ResponseWriter, req *http.Request) {
+	fp := this.decodeWho(req)
+	if fp == nil {
+		this.sendError(resp, http.StatusBadRequest, "Invalid friend id")
+		return
+	}
 	var invite InviteJson
-	if !this.decodeJsonBody(w, req, &invite) {
-		this.sendError(w, http.StatusBadRequest, "Invalid invitation request")
+	if !this.decodeJsonBody(resp, req, &invite) {
+		this.sendError(resp, http.StatusBadRequest, "Invalid invitation request")
 		return
 	}
-	var fp *crypto.Digest
-	err := transfer.DecodeString(invite.Friend, &fp)
+	myFp := this.Ident.Public().Fingerprint()
+	invite.From = myFp.String()
+
+	var buf bytes.Buffer
+	err := json.NewEncoder(&buf).Encode(invite)
 	if err != nil {
-		this.sendError(w, http.StatusBadRequest, "Invalid friend Id")
+		this.sendError(resp, http.StatusBadRequest, err.Error())
 		return
 	}
-	this.Log.Printf("Processing an invite %s:%s:%v", invite.Cid, invite.Friend, invite.Remove)
-	if !this.Subscribe(fp, invite.Cid, !invite.Remove) {
-		this.sendError(w, http.StatusBadRequest, "Invalid friend Id")
+
+	this.Log.Printf("Publish collection: %s to: %s", invite.Cid, fp)
+
+	cid := crypto.HashOf(myFp, fp).String()
+	key := crypto.HashOf(invite).String()
+	err = this.PutData(cid, key, this.Ident, &buf)
+	if err != nil {
+		this.sendError(resp, http.StatusBadRequest, err.Error())
 		return
 	}
-	this.sendJson(w, "OK")
+
+	this.sendJson(resp, "OK")
 }
 
-func (this *ApiMgr) postFriendInvite(w http.ResponseWriter, req *http.Request) {
-}
-
-func (this *ApiMgr) getData(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) getData(resp http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	owner := this.GetOwner(cid)
 	if owner == nil {
-		this.sendError(w, http.StatusNotFound, "Collection invalid")
+		this.sendError(resp, http.StatusNotFound, "Collection invalid")
 		return
 	}
 	key := vars["key"]
-	err := this.GetData(cid, key, w)
+	err := this.GetData(cid, key, resp)
 	// TODO: Handle each error independently
 	if err != nil {
-		this.sendError(w, http.StatusBadRequest, err.Error())
+		this.sendError(resp, http.StatusBadRequest, err.Error())
 	}
 }
 
-func (this *ApiMgr) putData(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) putData(resp http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	owner := this.GetOwner(cid)
 	if owner == nil {
-		this.sendError(w, http.StatusNotFound, "Collection invalid")
+		this.sendError(resp, http.StatusNotFound, "Collection invalid")
 		return
 	}
 	writer := this.GetWriter(cid, this.Ident.Public().Fingerprint().String())
 	if writer == nil {
-		this.sendError(w, http.StatusUnauthorized, "You are not a writer for this collection")
+		this.sendError(resp, http.StatusUnauthorized, "You are not a writer for this collection")
 		return
 	}
 	key := vars["key"]
 	err := this.PutData(cid, key, this.Ident, req.Body)
 	if err != nil {
-		this.sendError(w, http.StatusBadRequest, err.Error())
+		this.sendError(resp, http.StatusBadRequest, err.Error())
 	}
 }
 
-func (this *ApiMgr) postData(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) postData(resp http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	owner := this.GetOwner(cid)
 	if owner == nil {
-		this.sendError(w, http.StatusNotFound, "Collection invalid")
+		this.sendError(resp, http.StatusNotFound, "Collection invalid")
 		return
 	}
 	writer := this.GetWriter(cid, this.Ident.Public().Fingerprint().String())
 	if writer == nil {
-		this.sendError(w, http.StatusUnauthorized, "You are not a writer for this collection")
+		this.sendError(resp, http.StatusUnauthorized, "You are not a writer for this collection")
 		return
 	}
 	// key := vars["key"]
 
 	// err := this.PutData(cid, key, this.Ident, req.Body)
 	// if err != nil {
-	// 	this.sendError(w, http.StatusBadRequest, err.Error())
+	// 	this.sendError(resp, http.StatusBadRequest, err.Error())
 	// }
 	err := req.ParseMultipartForm(10 * 1024 * 1024)
 	if err != nil {
-		this.sendError(w, http.StatusBadRequest, err.Error())
+		this.sendError(resp, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if len(req.MultipartForm.File) != 1 {
-		this.sendError(w, http.StatusBadRequest, "Missing single file for upload")
+		this.sendError(resp, http.StatusBadRequest, "Missing single file for upload")
 		return
 	}
 
 	for _, fh := range req.MultipartForm.File {
 		if len(fh) != 1 {
-			this.sendError(w, http.StatusBadRequest, "Missing single file for upload")
+			this.sendError(resp, http.StatusBadRequest, "Missing single file for upload")
 			return
 		}
 
 		file, err := fh[0].Open()
 		if err != nil {
-			this.sendError(w, http.StatusBadRequest, err.Error())
+			this.sendError(resp, http.StatusBadRequest, err.Error())
 			return
 		}
 
 		key := vars["key"]
 		err = this.PutData(cid, key, this.Ident, file)
 		if err != nil {
-			this.sendError(w, http.StatusBadRequest, err.Error())
+			this.sendError(resp, http.StatusBadRequest, err.Error())
 		}
 		break
 	}
 }
 
-func (this *ApiMgr) deleteData(w http.ResponseWriter, req *http.Request) {
-	this.sendError(w, http.StatusNotImplemented, "Not Implemented")
+func (this *ApiMgr) deleteData(resp http.ResponseWriter, req *http.Request) {
+	this.sendError(resp, http.StatusNotImplemented, "Not Implemented")
 }
 
 // TODO: Lot of options, limt 1000, starting key, time order, long poll, etc
-func (this *ApiMgr) listData(w http.ResponseWriter, req *http.Request) {
+func (this *ApiMgr) listData(resp http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	cid := vars["cid"]
 	rows := this.Db.MultiQuery(`
-		SELECT key FROM Object
-		WHERE type = ? AND topic = ?
-		GROUP BY key
-		ORDER BY key`,
+		SELECT o.key 
+		FROM Object o
+			JOIN Topic t USING (topic_id)
+		WHERE o.type = ? AND t.name = ?
+		GROUP BY o.key
+		ORDER BY o.key`,
 		sync.RTData, cid)
 	out := []CollectionItemJson{}
 	for rows.Next() {
@@ -635,5 +640,5 @@ func (this *ApiMgr) listData(w http.ResponseWriter, req *http.Request) {
 		this.Db.Scan(rows, &item.Key)
 		out = append(out, item)
 	}
-	this.sendJson(w, out)
+	this.sendJson(resp, out)
 }

@@ -47,8 +47,10 @@ type node struct {
 	c       *C
 	client  *http.Client
 	api     *ApiMgr
-	tm      *test.TestMgr
+	cm      conn.ConnMgr
 	baseUrl string
+	profile *CollectionJson
+	self    *SelfJson
 }
 
 func (this *TestApiSuite) NewTestNode(name string, linkPort uint16, apiPort uint16) *node {
@@ -60,17 +62,33 @@ func (this *TestApiSuite) NewTestNode(name string, linkPort uint16, apiPort uint
 	api := NewApiMgr("localhost:3030", apiPort, data, this.ConnMgr)
 	api.SetExt(net.IPv4(127, 0, 0, 1), linkPort)
 	api.Start()
-	return &node{
+	node := &node{
 		Base:    base,
 		c:       this.C,
-		client:  conn.NewHttpClient(this.ConnMgr),
+		client:  conn.NewHttpClient(this.ConnMgr, 0),
 		api:     api,
 		baseUrl: fmt.Sprintf("http://localhost:%d", apiPort),
+		cm:      this.ConnMgr,
 	}
+	node.loadSelf()
+	node.createProfile(name)
+	return node
 }
 
 func (this *node) Stop() {
 	this.api.Stop()
+}
+
+func (this *node) poll(url string, result interface{}, timeout time.Duration) *http.Response {
+	client := conn.NewHttpClient(this.cm, timeout)
+	resp, err := client.Get(this.baseUrl + url)
+	this.c.Assert(err, IsNil)
+	this.c.Assert(resp.StatusCode, Equals, http.StatusOK)
+	if result != nil {
+		err = json.NewDecoder(resp.Body).Decode(result)
+		this.c.Assert(err, IsNil)
+	}
+	return resp
 }
 
 func (this *node) get(url string, result interface{}) *http.Response {
@@ -114,43 +132,69 @@ func (this *node) put(url string, data interface{}, result interface{}) *http.Re
 	return resp
 }
 
+func (this *node) addFriend(node *node) *FriendJson {
+	var friend FriendJson
+	this.post("/api/friends", &PassportJson{Passport: node.self.Passport}, &friend)
+	this.c.Assert(friend.Passport, Equals, node.self.Passport)
+	this.c.Assert(friend.Id, Equals, node.self.Id)
+	this.c.Assert(friend.Rendezvous, Equals, node.self.Rendezvous)
+	this.shareProfile(node)
+	return &friend
+}
+
+func (this *node) createProfile(name string) *CollectionJson {
+	this.post("/api/collections", "", &this.profile)
+	url := fmt.Sprintf("/api/collections/%v/data/profile", this.profile.Id)
+	record := struct{ name string }{name}
+	this.put(url, record, nil)
+	return this.profile
+}
+
+func (this *node) loadSelf() *SelfJson {
+	this.get("/api/self", &this.self)
+	return this.self
+}
+
+func (this *node) shareProfile(node *node) {
+	url := fmt.Sprintf("/api/friends/%v/invites", node.self.Id)
+	this.post(url, &InviteJson{Cid: this.profile.Id}, nil)
+}
+
+func (this *node) getInvite(timeout time.Duration) *InviteJson {
+	var invite InviteJson
+	this.poll("/api/invites", &invite, timeout)
+	return &invite
+}
+
+func (this *node) acceptInvite(invite *InviteJson) {
+}
+
+func (this *node) rejectInvite(invite *InviteJson) {
+}
+
 func (this *TestApiSuite) TestBasic(c *C) {
 	this.C = c
 
 	alice := this.NewTestNode("A", 10001, 2001)
 	bob := this.NewTestNode("B", 10002, 2002)
 
-	var selfAlice SelfJson
-	alice.get("/api/self", &selfAlice)
-	bob.post("/api/friends", &FriendJson{SelfJson: SelfJson{Passport: selfAlice.Passport}}, nil)
+	alice.addFriend(bob)
+	bob.addFriend(alice)
 
-	var selfBob SelfJson
-	bob.get("/api/self", &selfBob)
-	alice.post("/api/friends", &FriendJson{SelfJson: SelfJson{Passport: selfBob.Passport}}, nil)
+	ai := alice.getInvite(0)
+	c.Assert(ai, NotNil)
 
-	time.Sleep(1 * time.Second)
+	alice.acceptInvite(ai)
 
-	var cj CollectionJson
-	alice.post("/api/collections", "", &cj)
+	// var keys []CollectionItemJson
+	// bob.get("/api/collections/"+cid+"/data", &keys)
+	// bob.Log.Printf("Got keys: %v", keys)
 
-	cid := cj.Id
-	alice.Log.Printf("Made a new collection: %s", cid)
-	alice.post("/api/invites", &InviteJson{Cid: cid, Friend: selfBob.Id}, nil)
-	bob.post("/api/invites", &InviteJson{Cid: cid, Friend: selfAlice.Id}, nil)
+	// var r string
+	// bob.get("/api/collections/"+cid+"/data/some_key", &r)
 
-	alice.put("/api/collections/"+cid+"/data/some_key", "SomeJsonCrap", nil)
-
-	time.Sleep(1 * time.Second)
-
-	var keys []CollectionItemJson
-	bob.get("/api/collections/"+cid+"/data", &keys)
-	bob.Log.Printf("Got keys: %v", keys)
-
-	var r string
-	bob.get("/api/collections/"+cid+"/data/some_key", &r)
-
-	bob.Log.Printf("GOT: %s", r)
-	c.Assert(r, Equals, "SomeJsonCrap")
+	// bob.Log.Printf("GOT: %s", r)
+	// c.Assert(r, Equals, "SomeJsonCrap")
 
 	alice.Stop()
 	bob.Stop()

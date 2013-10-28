@@ -138,7 +138,8 @@ func newH0tb0x(dir string) {
 		fatal("", err)
 	}
 	configFile.Close()
-	thedb := db.NewDatabase(dbFilename, "h0tb0x")
+	log := log.New(os.Stderr, "", log.LstdFlags)
+	thedb := db.NewDatabase(dbFilename, "h0tb0x", log)
 	thedb.Close()
 	ident := crypto.NewSecretIdentity(pass1)
 	identFile, err := os.Create(idFilename)
@@ -180,6 +181,7 @@ func main() {
 	dbFilename := path.Join(*dir, DbFilename)
 	idFilename := path.Join(*dir, IdFilename)
 	dataDir := path.Join(*dir, "data")
+	log := log.New(os.Stderr, "", log.LstdFlags)
 
 	var config *Config
 	var thedb *db.Database
@@ -212,7 +214,7 @@ func main() {
 		if err != nil {
 			fatal("", err)
 		}
-		thedb = db.NewDatabase(dbFilename, "h0tb0x")
+		thedb = db.NewDatabase(dbFilename, "h0tb0x", log)
 	} else {
 		fmt.Printf("h0tb0x directory %s doesn't exist\n", *dir)
 		newH0tb0x(*dir)
@@ -246,7 +248,7 @@ func main() {
 	}
 
 	base := &base.Base{
-		Log:   log.New(os.Stderr, "", log.LstdFlags),
+		Log:   log,
 		Db:    thedb,
 		Ident: ident,
 		Port:  config.LinkPort,

@@ -35,13 +35,14 @@ type HttpClient struct {
 	connMgr ConnMgr
 }
 
-func NewHttpClient(connMgr ConnMgr) *http.Client {
+func NewHttpClient(connMgr ConnMgr, timeout time.Duration) *http.Client {
 	this := &HttpClient{
 		Client:  new(http.Client),
 		connMgr: connMgr,
 	}
 	this.Transport = &http.Transport{
 		Dial: this.dial,
+		ResponseHeaderTimeout: timeout,
 	}
 	return this.Client
 }

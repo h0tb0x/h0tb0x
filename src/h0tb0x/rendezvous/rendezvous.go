@@ -9,6 +9,7 @@ import (
 	"h0tb0x/crypto"
 	"h0tb0x/db"
 	"h0tb0x/transfer"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -37,7 +38,7 @@ type Client struct {
 }
 
 func NewClient(connMgr conn.ConnMgr) *Client {
-	return &Client{conn.NewHttpClient(connMgr)}
+	return &Client{conn.NewHttpClient(connMgr, 0)}
 }
 
 // Talks to a rendezvous server at addr and gets a record.
@@ -257,10 +258,12 @@ type RendezvousMgr struct {
 	router   *mux.Router
 	server   *http.Server
 	wait     sync.WaitGroup
+	log      *log.Logger
 }
 
 func NewRendezvousMgr(connMgr conn.ConnMgr, port uint16, file string) *RendezvousMgr {
-	database := db.NewDatabase(file, "rendezvous")
+	log := log.New(os.Stderr, "[R] ", log.LstdFlags|log.Lshortfile)
+	database := db.NewDatabase(file, "rendezvous", log)
 	router := mux.NewRouter()
 	this := &RendezvousMgr{
 		database: database,

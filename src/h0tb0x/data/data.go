@@ -27,7 +27,7 @@ const (
 type DataObj struct {
 	mgr         *DataMgr       // The data manager, not serialized
 	Key         string         // The key of this DataObj
-	Holds       int            // How many 'holds' do a have (uploads/downloads/etc)
+	RefCount    int            // How many 'holds' do a have (uploads/downloads/etc)
 	State       int            // What is my current state
 	Downloading bool           // Am I downloading?
 	Tracking    map[string]int // For each topic, how many object in that topic use this
@@ -46,20 +46,26 @@ type DataMgr struct {
 }
 
 // Add 'incoming advert'
-func (this *DataMgr) addAdvert(who int, topic string, key string) {
-	this.Db.Exec("INSERT OR IGNORE INTO Advert (key, topic, friend_id) VALUES (?, ?, ?)",
-		key, topic, who)
+func (this *DataMgr) addAdvert(who int, topic, key string) {
+	row := this.Db.SingleQuery("SELECT topic_id FROM Topic WHERE name = ?", topic)
+	var topicId int
+	this.Db.Scan(row, &topicId)
+	this.Db.Exec("INSERT OR IGNORE INTO Advert (key, topic_id, friend_id) VALUES (?, ?, ?)",
+		key, topicId, who)
 }
 
 // Del 'incoming advert'
-func (this *DataMgr) delAdvert(who int, topic string, key string) {
-	this.Db.Exec("DELETE FROM Advert WHERE key=? AND topic=? AND friend_id=?",
-		key, topic, who)
+func (this *DataMgr) delAdvert(who int, topic, key string) {
+	row := this.Db.SingleQuery("SELECT topic_id FROM Topic WHERE name = ?", topic)
+	var topicId int
+	this.Db.Scan(row, &topicId)
+	this.Db.Exec("DELETE FROM Advert WHERE key = ? AND topic_id = ? AND friend_id = ?",
+		key, topicId, who)
 }
 
 // Check if have any incoming adverts
 func (this *DataMgr) anyAdverts(key string) bool {
-	row := this.Db.SingleQuery("SELECT COUNT(*) FROM Advert WHERE key=?", key)
+	row := this.Db.SingleQuery("SELECT COUNT(*) FROM Advert WHERE key = ?", key)
 	var count int
 	this.Db.Scan(row, &count)
 	return count > 0
@@ -67,7 +73,7 @@ func (this *DataMgr) anyAdverts(key string) bool {
 
 // Get everyone advertizing a blob
 func (this *DataMgr) allAdverts(key string) []int {
-	rows := this.Db.MultiQuery("SELECT friend_id FROM Advert WHERE key=? GROUP BY friend_id", key)
+	rows := this.Db.MultiQuery("SELECT friend_id FROM Advert WHERE key = ? GROUP BY friend_id", key)
 	out := []int{}
 	for rows.Next() {
 		var friend int
@@ -79,7 +85,7 @@ func (this *DataMgr) allAdverts(key string) []int {
 
 // Change state of outgoing advert
 func (this *DataMgr) advertize(topic string, key string, up bool) {
-	this.Log.Printf("Doing advertize, topic = %s, key = %s, up = %d", topic, key, up)
+	this.Log.Printf("advertize: %s, %q, up(%v)", topic, key, up)
 	rec := &sync.Record{
 		RecordType: sync.RTAdvert,
 		Topic:      topic,
@@ -97,7 +103,7 @@ func (this *DataMgr) advertize(topic string, key string, up bool) {
 // Return a deserialized object, or nil if none
 func (this *DataMgr) maybeGetObj(key string) *DataObj {
 	//this.Log.Printf("Getting Object: %s", key)
-	row := this.Db.SingleQuery("SELECT data FROM Blob WHERE key=?", key)
+	row := this.Db.SingleQuery("SELECT data FROM Blob WHERE key = ?", key)
 	var data []byte
 	if this.Db.MaybeScan(row, &data) {
 		var obj *DataObj
@@ -129,7 +135,7 @@ func (this *DataMgr) getObj(key string) *DataObj {
 // 'Writes' an object, this means deleting it (and associated data) if it's dead
 func (this *DataMgr) writeObj(obj *DataObj) {
 	//this.Log.Printf("Writing object: %v", obj)
-	if len(obj.Tracking) == 0 && obj.Holds == 0 {
+	if len(obj.Tracking) == 0 && obj.RefCount == 0 {
 		if obj.State == DSLocal {
 			name := path.Join(this.dir, obj.Key)
 			os.Remove(name)
@@ -138,14 +144,14 @@ func (this *DataMgr) writeObj(obj *DataObj) {
 		this.Db.Exec("DELETE FROM Blob WHERE Key = ?", obj.Key)
 	} else {
 		//this.Log.Printf("Deleting and Storing")
-		this.Db.Exec("DELETE FROM Blob WHERE Key = ?", obj.Key)
 		data, err := transfer.EncodeBytes(obj)
 		if err != nil {
 			panic(err)
 		}
 		//this.Log.Printf("Putting data as: %v", data)
-		this.Db.Exec("INSERT INTO Blob (key, needs_download, data) VALUES (?, ?, ?)",
-			obj.Key, obj.State == DSReady && !obj.Downloading, data)
+		needsDownload := (obj.State == DSReady) && !obj.Downloading
+		this.Db.Exec("REPLACE INTO Blob (key, needs_download, data) VALUES (?, ?, ?)",
+			obj.Key, needsDownload, data)
 	}
 }
 
@@ -171,7 +177,7 @@ func (this *DataMgr) onAdvert(who int, fp *crypto.Digest, rec *sync.Record) {
 }
 
 func (this *DataObj) metaUp(topic string) {
-	this.mgr.Log.Printf("onMetaUp: Obj %s, topic = %s, state = %d", this.Key, topic, this.State)
+	this.mgr.Log.Printf("onMetaUp: %s, %q, %v", topic, this.Key, this.State)
 	this.Tracking[topic]++
 	if this.State == DSLocal && this.Tracking[topic] == 1 {
 		this.mgr.advertize(topic, this.Key, true)
@@ -183,7 +189,7 @@ func (this *DataObj) metaUp(topic string) {
 }
 
 func (this *DataObj) metaDown(topic string) {
-	this.mgr.Log.Printf("Obj (%s).onMetaDown(%s)", this.Key, topic)
+	this.mgr.Log.Printf("onMetaDown: %s, %q", topic, this.Key)
 	this.Tracking[topic]--
 	if this.Tracking[topic] == 0 {
 		delete(this.Tracking, topic)
@@ -218,7 +224,7 @@ func (this *DataObj) newFile(file string) {
 	}
 	newname := path.Join(this.mgr.dir, this.Key)
 	os.Rename(file, newname)
-	this.mgr.Log.Printf("Setting state of %s to Local", this.Key)
+	this.mgr.Log.Printf("%q is Local", this.Key)
 	this.State = DSLocal
 	for topic, _ := range this.Tracking {
 		this.mgr.advertize(topic, this.Key, true)
@@ -226,13 +232,13 @@ func (this *DataObj) newFile(file string) {
 }
 
 func (this *DataObj) startDownload() {
-	this.Holds++
+	this.RefCount++
 	this.Downloading = true
 }
 
 func (this *DataObj) finishDownload(file string, worked bool) {
 	this.Downloading = false
-	this.Holds--
+	this.RefCount--
 	if worked {
 		this.newFile(file)
 	} else {
@@ -290,7 +296,7 @@ func (this *DataMgr) onDataGet(who int, ident *crypto.Digest, in io.Reader, out 
 		this.lock.Unlock()
 		return fmt.Errorf("Unknown blob: %s", key)
 	}
-	obj.Holds++
+	obj.RefCount++
 	this.writeObj(obj)
 	this.lock.Unlock()
 
@@ -302,7 +308,7 @@ func (this *DataMgr) onDataGet(who int, ident *crypto.Digest, in io.Reader, out 
 
 	this.lock.Lock()
 	obj = this.getObj(key)
-	obj.Holds--
+	obj.RefCount--
 	this.writeObj(obj)
 	this.lock.Unlock()
 
@@ -314,7 +320,7 @@ func (this *DataMgr) downloadLoop() {
 	this.lock.Lock() // Lock is held *except* when doing remote calls & sleeping
 	// While I'm not closing
 	for !this.isClosing {
-		this.SyncMgr.Log.Printf("Looking things to download\n")
+		this.SyncMgr.Log.Printf("Looking for things to download\n")
 		// Get a object to download
 		var key string
 		row := this.Db.SingleQuery("SELECT key FROM Blob WHERE needs_download = 1")
@@ -365,7 +371,7 @@ func (this *DataMgr) downloadLoop() {
 
 // Reads from io.Reader and generates a new object, put it to the meta-data layer
 func (this *DataMgr) PutData(topic string, key string, writer *crypto.SecretIdentity, stream io.Reader) error {
-	this.Log.Printf("Putting data: %s, %s", topic, key)
+	this.Log.Printf("PUT: %s, %q", topic, key)
 	// Write the object to disk
 	tmppath := path.Join(this.incoming, crypto.RandomString())
 	file, err := os.Create(tmppath)
@@ -386,7 +392,7 @@ func (this *DataMgr) PutData(topic string, key string, writer *crypto.SecretIden
 	this.lock.Lock()
 	obj := this.getObj(okey)
 	obj.newFile(tmppath)
-	obj.Holds++
+	obj.RefCount++
 	this.writeObj(obj)
 	this.lock.Unlock()
 
@@ -397,7 +403,7 @@ func (this *DataMgr) PutData(topic string, key string, writer *crypto.SecretIden
 	// Remove hold
 	this.lock.Lock()
 	obj = this.getObj(okey)
-	obj.Holds--
+	obj.RefCount--
 	this.writeObj(obj)
 	this.lock.Unlock()
 
@@ -423,7 +429,7 @@ func (this *DataMgr) GetData(topic string, key string, stream io.Writer) error {
 		this.lock.Unlock()
 		return fmt.Errorf("File not local yet")
 	}
-	obj.Holds++
+	obj.RefCount++
 	this.writeObj(obj)
 	this.lock.Unlock()
 
@@ -435,7 +441,7 @@ func (this *DataMgr) GetData(topic string, key string, stream io.Writer) error {
 
 	this.lock.Lock()
 	obj = this.getObj(okey)
-	obj.Holds--
+	obj.RefCount--
 	this.writeObj(obj)
 	this.lock.Unlock()
 
