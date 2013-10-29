@@ -19,22 +19,22 @@ module.exports = function(grunt) {
 		}
 	});
 
-	grunt.registerTask('default', ['tsd-pkg', 'ts:build']);
+	grunt.registerTask('default', ['ts:build']);
 	grunt.registerTask('watch', ['ts:dev']);
 
-	grunt.registerTask('tsd-pkg', 'Install TypeScript definitions specified in package.json', function() {
-		this.requiresConfig('pkg');
-		var pkg = grunt.config('pkg');
-		pkg.tsd.forEach(function(tsd) {
-			grunt.task.run('tsd:' + tsd);
-		})
-	});
+	// grunt.registerTask('tsd-pkg', 'Install TypeScript definitions specified in package.json', function() {
+	// 	this.requiresConfig('pkg');
+	// 	var pkg = grunt.config('pkg');
+	// 	pkg.tsd.forEach(function(tsd) {
+	// 		grunt.task.run('tsd:' + tsd);
+	// 	})
+	// });
 
-	grunt.registerTask('tsd', 'Install a TypeScript definition', function(tsd) {
-		var done = this.async();
-		grunt.util.spawn({cmd: 'node_modules/.bin/tsd', args: [ 'install*', tsd ]}, function(error, result, code) {
-			grunt.log.writeln(result);
-			done(error);
-		});
-	})
+	// grunt.registerTask('tsd', 'Install a TypeScript definition', function(tsd) {
+	// 	var done = this.async();
+	// 	grunt.util.spawn({cmd: 'node_modules/.bin/tsd', args: [ 'install*', tsd ]}, function(error, result, code) {
+	// 		grunt.log.writeln(result);
+	// 		done(error);
+	// 	});
+	// })
 };

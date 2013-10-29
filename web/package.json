@@ -7,7 +7,7 @@
     "url": "fried.h0tb0x.net:h0tb0x.git"
   },
   "tsd": [
-    "angular-resource"
+    "angular-resource-1.0"
   ],
   "devDependencies": {
     "bower": "~1.2",
