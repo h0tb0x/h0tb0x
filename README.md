@@ -1,6 +1,6 @@
 # h0tb0x
 
-h0tb0x is a socially distributed file system.
+h0tb0x is a cloud you make with friends.
 
 ## Development Environment
 
