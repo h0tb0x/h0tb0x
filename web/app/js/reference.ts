@@ -1,4 +1,4 @@
-/// <reference path="../../d.ts/DefinitelyTyped/angularjs/angular-resource.d.ts" />
+/// <reference path="../../d.ts/DefinitelyTyped/angularjs/angular-resource-1.0.d.ts" />
 
 //grunt-start
 /// <reference path="controllers.ts" />
