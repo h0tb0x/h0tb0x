@@ -127,3 +127,32 @@ func (this *TestMetaSuite) TestMeta(c *C) {
 	carol.Stop()
 	dave.Stop()
 }
+
+func (this *TestMetaSuite) TestProfiles(c *C) {
+	this.C = c
+
+	// Make some users
+	alice := this.NewTestNode("A", 10001)
+	bob := this.NewTestNode("B", 10002)
+	carol := this.NewTestNode("C", 10003)
+
+	// Make some links
+	CreateLink(alice, bob)
+	CreateLink(alice, carol)
+
+	// Alice writes a record to her profile
+	alice.meta.Put(alice.meta.ProfileTopic(), alice.id, "Hello", []byte("World"))
+
+	// Wait until is propagates, TODO: No races
+	time.Sleep(3 * time.Second)
+
+	// Bob reads the records
+	w := bob.meta.Get(alice.meta.ProfileTopic(), "Hello")
+	c.Assert(w, NotNil)
+	c.Assert(w, DeepEquals, []byte("World"))
+
+	// Stop everyone
+	alice.Stop()
+	bob.Stop()
+	carol.Stop()
+}

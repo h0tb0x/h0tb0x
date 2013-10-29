@@ -54,6 +54,8 @@ func (this *MetaMgr) Start() {
 	this.SyncMgr.SetSink(sync.RTWriter, this.onWriter)
 	this.SyncMgr.SetSink(sync.RTData, this.onData)
 	this.SyncMgr.Start()
+	this.CreateSpecialCollection(this.Ident, this.Ident.Fingerprint())
+	this.CreateSpecialCollection(this.Ident, crypto.HashOf("profile"))
 }
 
 // Stop the MetaMgr, stops sync as well

@@ -40,6 +40,7 @@ type SelfJson struct {
 	Host       string `json:"host"`
 	Port       uint16 `json:"port"`
 	SelfCid    string `json:"selfCid"`
+	ProfileCid string `json:"profileCid"`
 }
 
 type FriendJson struct {
@@ -151,7 +152,6 @@ func (this *ApiMgr) runServer() {
 
 func (this *ApiMgr) Start() error {
 	this.DataMgr.Start()
-	this.CreateSpecialCollection(this.Ident, this.Ident.Fingerprint())
 	var err error
 	this.listener, err = this.connMgr.Listen("tcp", this.server.Addr)
 	if err != nil {
@@ -218,7 +218,6 @@ func (this *ApiMgr) SetExt(host net.IP, port uint16) {
 
 func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
 	myFp := this.Ident.Public().Fingerprint()
-	myCid := crypto.HashOf(myFp, myFp).String()
 
 	this.mutex.Lock()
 	passport := transfer.AsString(myFp, this.rshost)
@@ -229,7 +228,8 @@ func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
 		Passport:   passport,
 		Host:       this.extHost,
 		Port:       this.extPort,
-		SelfCid:    myCid,
+		SelfCid:    this.SelfTopic(),
+		ProfileCid: this.ProfileTopic(),
 	}
 	this.mutex.Unlock()
 	this.sendJson(w, json)
