@@ -239,17 +239,51 @@ func (this *SyncMgr) onNotify(remote int, fp *crypto.Digest, in io.Reader, out i
 	return nil
 }
 
+// Get the special outbox topic for a friend
+func (this *SyncMgr) OutboxTopic(friend *crypto.Digest) string {
+	myFp := this.Ident.Public().Fingerprint()
+	return crypto.HashOf(myFp, friend).String()
+}
+
+// Get the special inbox topic for a friend
+func (this *SyncMgr) InboxTopic(friend *crypto.Digest) string {
+	myFp := this.Ident.Public().Fingerprint()
+	return crypto.HashOf(friend, myFp).String()
+}
+
+// Get my self topic
+func (this *SyncMgr) SelfTopic() string {
+	myFp := this.Ident.Public().Fingerprint()
+	return crypto.HashOf(myFp, myFp).String()
+}
+
+// Get my profile topic
+func (this *SyncMgr) ProfileTopic() string {
+	myFp := this.Ident.Public().Fingerprint()
+	return crypto.HashOf(myFp, crypto.HashOf("profile")).String()
+}
+
+// Get a friend's profile topic
+func (this *SyncMgr) FriendProfileTopic(friend *crypto.Digest) string {
+	return crypto.HashOf(friend, crypto.HashOf("profile")).String()
+}
+
 func (this *SyncMgr) onFriendChange(id int, fp *crypto.Digest, what link.FriendStatus) {
 	this.cmut.Lock()
 	if what == link.FriendStartup || what == link.FriendAdded {
 		this.Log.Printf("Adding friend: %s", fp.String())
-		myFp := this.Ident.Public().Fingerprint()
 		// create inbox
 		this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (topic, friend_id, desired, requested) VALUES (?, ?, ?, ?)",
-			crypto.HashOf(fp, myFp).String(), id, 1, 1)
+			this.InboxTopic(fp), id, 1, 1)
 		// create outbox
 		this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (topic, friend_id, desired, requested) VALUES (?, ?, ?, ?)",
-			crypto.HashOf(myFp, fp).String(), id, 1, 1)
+			this.OutboxTopic(fp), id, 1, 1)
+		// Export my profile
+		this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (topic, friend_id, desired, requested) VALUES (?, ?, ?, ?)",
+			this.ProfileTopic(), id, 1, 1)
+		// Import their profile
+		this.Db.Exec("INSERT OR IGNORE INTO TopicFriend (topic, friend_id, desired, requested) VALUES (?, ?, ?, ?)",
+			this.FriendProfileTopic(fp), id, 1, 1)
 		cl := newClientLooper(this, id)
 		this.clients[fp.String()] = cl
 		cl.run()
@@ -364,11 +398,10 @@ func (this *SyncMgr) Subscribe(id *crypto.Digest, topic string, enable bool) boo
 	if enable {
 		enbyte = 1
 	}
-	myFp := this.Ident.Public().Fingerprint()
 	client.lock.Unlock()
 	this.Put(&Record{
 		RecordType: RTSubscribe,
-		Topic:      crypto.HashOf(myFp, id).String(),
+		Topic:      this.OutboxTopic(id),
 		Key:        topic,
 		Value:      []byte{enbyte},
 		Priority:   heard,
