@@ -65,8 +65,9 @@ sudo pacman -S nodejs bzr mercurial python-pip
 ```
 
 Optionally use AUR to install git-flow. 
+```
 git-flow: https://aur.archlinux.org/packages/gitflow/
-
+```
 
 ## Building h0tb0x
 
