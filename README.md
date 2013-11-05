@@ -51,6 +51,23 @@ Update your PATH by adding this to your `$HOME/.profile`:
 export PATH=/usr/local/go/bin:$PATH
 ```
 
+### Arch
+
+First install the Go compiler:
+```
+sudo pacman -S community/go
+```
+Install prereqs via pacman:
+
+```
+sudo pacman -S nodejs bzr mercurial python-pip
+
+```
+
+Optionally use AUR to install git-flow. 
+git-flow: https://aur.archlinux.org/packages/gitflow/
+
+
 ## Building h0tb0x
 
 A `Makefile` is included and is used in the traditional way:
