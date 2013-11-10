@@ -172,7 +172,7 @@ module App {
 				this.$scope.recvBlobError = result.data;
 			});
 		}
-
+		
 		shareCollection(friend: IFriend) {
 			console.log(friend);
 			var invite = <ICollectionInvite> new this.Invite();
@@ -189,6 +189,7 @@ module App {
 	export interface IFriendDetailScope extends ng.IScope {
 		fp: string;
 		friend: ng.resource.IResource;
+		onDeleteFriend: Function;
 	}
 
 	export class FriendDetailCtrl {
@@ -210,6 +211,26 @@ module App {
 			$scope.fp = $routeParams.fp;
 			$scope.friend = Friend.get({fp: $scope.fp}, (friend: IFriend) => {
 				this.app.resolveProfile(friend);
+			});
+			$scope.onDeleteFriend = () => this.onDeleteFriend();
+		}
+		
+		onDeleteFriend() {
+			var friend = <IFriend> this.$scope.friend;
+			var fname = friend.name;
+			if (!friend.name) {
+				fname = "Anonymous (" + this.$scope.fp + ")";
+			}
+			var ready = confirm("Are you sure you want to delete this friend " + fname + " permanently?");
+			if(!ready) {
+				return;
+			}
+			friend.$delete({fp: this.$scope.fp}, (friend: IFriend) => {
+				// Unknown
+				alert("Deleted");
+				window.location.href = "#/friends";
+			}, (result) => {
+				alert("Error: " + result.data);
 			});
 		}
 	}

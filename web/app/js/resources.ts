@@ -75,7 +75,10 @@ module App {
 			function(
 				$resource: ng.resource.IResourceService
 			): ng.resource.IResourceClass {
-				return $resource('/api/friends/:fp');
+				return $resource('/api/friends/:fp', {
+				}, {
+					delete: { method: 'DELETE' }
+				});
 			}
 		]
 	}

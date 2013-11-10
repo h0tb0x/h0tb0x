@@ -291,7 +291,7 @@ func (this *SyncMgr) onFriendChange(id int, fp *crypto.Digest, what link.FriendS
 		cl := this.clients[fp.String()]
 		cl.stop()
 		delete(this.clients, fp.String())
-		this.Db.Exec("DELETE INTO TopicFriend WHERE friend_id = ?", id)
+		this.Db.Exec("DELETE FROM TopicFriend WHERE friend_id = ?", id)
 	}
 	this.cmut.Unlock()
 }
