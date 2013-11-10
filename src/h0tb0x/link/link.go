@@ -27,6 +27,7 @@ const (
 const (
 	ServiceNotify = 1
 	ServiceData   = 2
+	ServiceAdvert = 3
 )
 
 const (
@@ -442,3 +443,26 @@ func (this *LinkMgr) Send(service int, id int, req io.Reader, wr io.Writer) erro
 	_, err = io.Copy(wr, resp.Body)
 	return err
 }
+
+// Send a request to a friend and get a readerable 
+func (this *LinkMgr) SendHalf(service int, id int, req io.Reader) (respBody io.Reader, err error) {
+	fi := this.friendsById[id]
+	url := fmt.Sprintf("h0tb0x://%s/h0tb0x/%d", fi.fingerprint, service)
+	resp, err := this.client.Post(url, "application/binary", req)
+	if err != nil {
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("RPC had non 200 http return code: %d", resp.StatusCode)
+		resp.Body.Close()
+		return
+	}
+	if resp.Header.Get("Content-Type") != "application/binary" {
+		err = fmt.Errorf("Content type mismatch")
+		resp.Body.Close()
+		return
+	}
+	respBody = resp.Body
+	return
+}
+

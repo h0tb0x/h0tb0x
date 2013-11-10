@@ -49,25 +49,19 @@ CREATE TABLE Advert(
 	PRIMARY KEY(key, friend_id, topic)
 );
 
--- Most of the data for an advert is for *inbound* adverts
--- That is, what I last heard from each friend regarding the destination
--- But I also keep my local data in the same table, with -1 for source
-
---CREATE TABLE Advert(
---	dest_id INTEGER NOT NULL,
---	source_id INTEGER NOT NULL,  -- -1 if self
---	cost INTEGER NOT NULL, -- -1 if inf
---	downhill_id INTEGER NOT NULL, -- friend_id if source_id = -1, otherwise 0 (not self) or 1 (self) 
---	timestamp INTEGER NOT NULL,
---	desired INTEGER NOT NULL,
---	PRIMARY KEY(dest_id, source_id)
---);
+CREATE TABLE Storage(
+	key TEXT NOT NULL, -- The hash of the storage
+	data BLOB NOT NULL,  -- Info about who has what
+	needs_req BOOL NOT NULL, -- Advert data needs a request
+	PRIMARY KEY(key)
+);
 
 CREATE UNIQUE INDEX IDX_Friend_fingerprint ON Friend (fingerprint);
 CREATE UNIQUE INDEX IDX_Object_seqno ON Object (seqno);
 CREATE UNIQUE INDEX IDX_Blob ON Blob (key);
 CREATE INDEX IDX_TopicFriend_check ON TopicFriend (friend_id, desired, requested);
 CREATE INDEX IDX_Blob_needs_download ON Blob (needs_download);
+CREATE INDEX IDX_Storage_needs_req ON Storage (needs_req);
 CREATE INDEX IDX_Object_topic ON Object (topic, type, key, priority);
 `,
 		migrations: []string{
@@ -155,6 +149,17 @@ CREATE INDEX IF NOT EXISTS IDX_Object_topic ON Object (topic, type, key, priorit
 `,
 			`
 DROP TABLE Rendezvous;
+`,
+			`
+CREATE TABLE Storage(
+        key TEXT NOT NULL, -- The hash of the storage
+        data BLOB NOT NULL,  -- Info about who has what
+        needs_req BOOL NOT NULL, -- Advert data needs a request
+        PRIMARY KEY(key)
+);
+
+CREATE INDEX IDX_Storage_needs_req ON Storage (needs_req);
+
 `,
 		},
 	}
