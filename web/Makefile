@@ -8,7 +8,6 @@ clean:
 	rm -rf node_modules
 	rm -rf app/lib
 	rm -rf test/lib
-	rm -rf d.ts
 	rm -f app/app.js*
 
 deps:

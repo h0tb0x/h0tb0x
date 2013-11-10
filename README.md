@@ -1,6 +1,6 @@
 # h0tb0x
 
-h0tb0x is a socially distributed file system.
+h0tb0x is a cloud you make with friends.
 
 ## Development Environment
 
@@ -49,6 +49,24 @@ tar -C /usr/local -xzf go1.1.2.linux-amd64.tar.gz
 Update your PATH by adding this to your `$HOME/.profile`:
 ```
 export PATH=/usr/local/go/bin:$PATH
+```
+
+### Arch
+
+First install the Go compiler:
+```
+sudo pacman -S community/go
+```
+Install prereqs via pacman:
+
+```
+sudo pacman -S nodejs bzr mercurial python-pip
+
+```
+
+Optionally use AUR to install git-flow. 
+```
+git-flow: https://aur.archlinux.org/packages/gitflow/
 ```
 
 ## Building h0tb0x
