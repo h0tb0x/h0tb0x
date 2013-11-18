@@ -1,7 +1,6 @@
 package main
 
 import (
-	"code.google.com/p/go-nat-pmp"
 	"code.google.com/p/gopass"
 	"encoding/json"
 	"flag"
@@ -14,6 +13,7 @@ import (
 	"h0tb0x/db"
 	"h0tb0x/link"
 	"h0tb0x/meta"
+	"h0tb0x/nat"
 	"h0tb0x/rendezvous"
 	"h0tb0x/sync"
 	"h0tb0x/transfer"
@@ -49,36 +49,13 @@ type Config struct {
 	Rendezvous string // Rendezvous server to use
 }
 
-func GetExternalAddr(port uint16) (net.IP, uint16, error) {
-	str, err := GetGateway()
-	fmt.Printf("Gateway Address: %q\n", str)
+// Flag variables
+var useUPnP bool
 
-	gateway := net.ParseIP(str)
-	if gateway == nil {
-		return nil, 0, fmt.Errorf("Invalid gateway")
-	}
-
-	nat := natpmp.NewClient(gateway)
-	extaddr, err := nat.GetExternalAddress()
-	if err != nil {
-		return nil, 0, err
-	}
-	ip := net.IPv4(
-		extaddr.ExternalIPAddress[0],
-		extaddr.ExternalIPAddress[1],
-		extaddr.ExternalIPAddress[2],
-		extaddr.ExternalIPAddress[3],
-	)
-	fmt.Printf("External Address: %v\n", ip)
-
-	res, err := nat.AddPortMapping("tcp", int(port), 0, PortMapLifetime)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	fmt.Printf("External Port: %v\n", res.MappedExternalPort)
-	return ip, res.MappedExternalPort, nil
-}
+// NAT
+//var gateway string
+var portflag int
+var port uint16
 
 func fatal(msg string, err error) {
 	fmt.Fprintf(os.Stderr, msg)
@@ -154,6 +131,57 @@ func newH0tb0x(dir string) {
 	identFile.Close()
 }
 
+// Top function - will call UPnP or NAT-PMP GetExternalAddr function dependent on parameters
+func GetExternalAddrCommon(port uint16) (net.IP, uint16, error) {
+
+	var natobj nat.NAT
+	var listenPort int
+	var external net.IP
+
+	str, err := GetGateway()
+	fmt.Printf("Gateway Address: %q\n", str)
+
+	gatewayIP := net.ParseIP(str)
+	if gatewayIP == nil {
+		return nil, 0, fmt.Errorf("Invalid gateway:  ", gatewayIP)
+	}
+
+	// fmt.Printf("Getting External Address (Common Function)\n")
+
+	// Create NAT
+	if useUPnP {
+		log.Println("Using UPnP to open port.")
+		natobj, err = nat.Discover()
+	} else {
+		log.Println("Using NAT-PMP to open port.")
+		natobj = nat.NewNatPMP(gatewayIP)
+	}
+	if err != nil {
+		log.Println("Unable to create NAT:", err)
+		return nil, 0, fmt.Errorf("Unable to create Nat:", err)
+	}
+	if natobj == nil {
+		listenPort = int(port)
+	} else {
+		external, err = natobj.GetExternalAddress()
+		if err != nil {
+			log.Println("Unable to get external IP address from NAT")
+			return nil, 0, fmt.Errorf("Unable to get external IP address from NAT")
+		}
+		log.Println("External IP address: ", external)
+		if listenPort, err = nat.ChooseListenPort(natobj, port); err != nil {
+			log.Println("Could not choose listen port.", err)
+			log.Println("Peer connectivity will be affected.")
+		}
+	}
+
+	// Convert port value back to uint16
+	port = uint16(listenPort)
+	fmt.Printf("External Port: %v\n", listenPort)
+	return external, port, nil
+}
+
+// *** MAIN ***
 func main() {
 	connMgr := conn.NewNetConnMgr()
 	user, err := user.Current()
@@ -165,7 +193,9 @@ func main() {
 
 	rendezvousPort := flag.Int("r", 0, "Set the rendezvous port and run a rendezvous server instead of h0tb0x")
 	dir := flag.String("d", defaultDir, "The directory your h0tb0x stuff lives in")
+	flag.BoolVar(&useUPnP, "useUPnP", false, "Use UPnP to set up router port forwarding instead of NATPMP")
 	flag.Parse()
+
 	if *dir == "" {
 		fatal("Directory option is required", nil)
 	}
@@ -229,8 +259,8 @@ func main() {
 	var extHost net.IP
 	var extPort uint16
 	if config.ExtHost == "" || config.ExtPort == 0 {
-		fmt.Printf("Using nat-pmp\n")
-		extHost, extPort, err = GetExternalAddr(config.LinkPort)
+		// fmt.Printf("Getting External Address\n")
+		extHost, extPort, err = GetExternalAddrCommon(config.LinkPort)
 		if err != nil {
 			panic(err)
 		}
@@ -274,9 +304,9 @@ func main() {
 				case <-tchan:
 					break
 				}
-				extHost, extPort, err = GetExternalAddr(config.LinkPort)
+				extHost, extPort, err = GetExternalAddrCommon(config.LinkPort)
 				if err != nil {
-					log.Printf("GetExternalAddr failed: %v", err)
+					log.Printf("GetExternalAddrCommon failed: %v", err)
 					continue
 				}
 				api.SetExt(extHost, extPort)
