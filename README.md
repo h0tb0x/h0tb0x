@@ -14,7 +14,7 @@ For convenience, there is a script that you can source which will set the `GOPAT
 Install homebrew:
 
 ```
-ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go)"
+ruby -e "$(curl -fsSL https://raw.github.com/mxcl/homebrew/go/install)"
 ```
 
 Update your PATH by adding this to your `$HOME/.bashrc` file:
