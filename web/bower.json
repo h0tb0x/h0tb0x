@@ -8,7 +8,7 @@
     "angular-resource": "~1.0.8",
     "angular-bootstrap": "~0.6.0",
     "bootstrap": "~3.0.0",
-    "angularjs-file-upload": "~0.1.4"
+    "angularjs-file-upload": "~1.0.0"
   },
   "ignore": [
     "node_modules/"

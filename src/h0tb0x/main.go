@@ -51,6 +51,7 @@ type Config struct {
 
 // Flag variables
 var useUPnP bool
+var useNATPMP bool
 
 // NAT
 //var gateway string
@@ -148,36 +149,60 @@ func GetExternalAddrCommon(port uint16) (net.IP, uint16, error) {
 
 	// fmt.Printf("Getting External Address (Common Function)\n")
 
-	// Create NAT
-	if useUPnP {
-		log.Println("Using UPnP to open port.")
-		natobj, err = nat.Discover()
-	} else {
-		log.Println("Using NAT-PMP to open port.")
+	// Try NATPMP First
+	if !useUPnP {
+		log.Println("Attempting to use NATPMP to set up port forwarding.")
 		natobj = nat.NewNatPMP(gatewayIP)
+
+		if natobj != nil {
+			external, err = natobj.GetExternalAddress()
+			if err != nil { // Error Returned
+				log.Println("Error:  Unable to get external IP address from router using NATPMP")
+				natobj = nil // If there is an error, nil out natobj so we know to try UPnP instead
+				// return nil, 0, fmt.Errorf("Error - Unable to get external IP address from router using NATPMP")
+			} else {
+				log.Println("Router's external IP address discovered: ", external)
+			}
+		} else { // We don't appear to ever hit this case - natobj is never returned nil from NewNatPMP even if there is an error.
+			log.Println("Unable to discover router capabilities using NATPMP", err)
+		}
 	}
-	if err != nil {
-		log.Println("Unable to create NAT:", err)
-		return nil, 0, fmt.Errorf("Unable to create Nat:", err)
+
+	// If NATPMP failed, or -useUPnP is set, try UPnP
+	if !useNATPMP && natobj == nil {
+		log.Println("Attempting to use UPnP to set up port forwarding.")
+		natobj, err = nat.Discover()
+		if err != nil {
+			log.Println("Unable to discover router capabilities using UPnP", err)
+			//			return nil, 0, fmt.Errorf("Unable to discover router capabilities using UPnP:", err)
+		}
+
+		external, err = natobj.GetExternalAddress()
+		if err != nil { // Error
+			log.Println("Error:  Unable to get external IP address from router using UPnP")
+			// return nil, 0, fmt.Errorf("Error - Unable to get external IP address from router using UPnP")
+		} else {
+			log.Println("Router's external IP address discovered: ", external)
+		}
 	}
+
+	// If IP discovery failed
 	if natobj == nil {
 		listenPort = int(port)
+		log.Println("WARNING:  Router port forwarding setup failed - peers will be unable to connect through firewall.")
 	} else {
-		external, err = natobj.GetExternalAddress()
-		if err != nil {
-			log.Println("Unable to get external IP address from NAT")
-			return nil, 0, fmt.Errorf("Unable to get external IP address from NAT")
-		}
-		log.Println("External IP address: ", external)
+		// Request that the router forward the port
 		if listenPort, err = nat.ChooseListenPort(natobj, port); err != nil {
-			log.Println("Could not choose listen port.", err)
-			log.Println("Peer connectivity will be affected.")
+			log.Println("Error during router port forwarding request:  ", err)
+			log.Println("Peers will be unable to connect through firewall.")
+		} else {
+			log.Println("Router port forwarding request successful.")
 		}
 	}
 
 	// Convert port value back to uint16
 	port = uint16(listenPort)
-	fmt.Printf("External Port: %v\n", listenPort)
+	fmt.Printf("Listening on external port %v\n", listenPort)
 	return external, port, nil
 }
 
@@ -193,7 +218,8 @@ func main() {
 
 	rendezvousPort := flag.Int("r", 0, "Set the rendezvous port and run a rendezvous server instead of h0tb0x")
 	dir := flag.String("d", defaultDir, "The directory your h0tb0x stuff lives in")
-	flag.BoolVar(&useUPnP, "useUPnP", false, "Use UPnP to set up router port forwarding instead of NATPMP")
+	flag.BoolVar(&useUPnP, "useUPnP", false, "Only use UPnP to set up router port forwarding (skip NATPMP detection)")
+	flag.BoolVar(&useNATPMP, "useNATPMP", false, "Only use NATPMP to set up router port forwarding (skip UPnP detection)")
 	flag.Parse()
 
 	if *dir == "" {
