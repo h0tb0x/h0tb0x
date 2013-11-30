@@ -15,6 +15,7 @@ module App {
 			return [
 				'$log',
 				'$scope',
+				'$upload',
 				'$http',
 				'SelfResource',
 				'ProfileResource',
@@ -25,6 +26,7 @@ module App {
 		constructor(
 			private $log: ng.ILogService,
 			private $scope: IMainScope,
+			private $upload: any,
 			private $http: IHttpService,
 			private Self: IResourceClass,
 			private Profile: IResourceClass
@@ -46,7 +48,7 @@ module App {
 
 		onFileSelect($files) {
 			angular.forEach($files, (file) => {
-				this.$http.uploadFile({
+				this.$upload.upload({
 					url: this.$scope.pictureUrl,
 					file: file
 				}).then((data, status, headers, config) => {
