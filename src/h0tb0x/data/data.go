@@ -314,7 +314,7 @@ func (this *DataMgr) downloadLoop() {
 	this.lock.Lock() // Lock is held *except* when doing remote calls & sleeping
 	// While I'm not closing
 	for !this.isClosing {
-		this.SyncMgr.Log.Printf("Looking things to download\n")
+		this.SyncMgr.Log.Printf("Looking for things to download\n")
 		// Get a object to download
 		var key string
 		row := this.Db.SingleQuery("SELECT key FROM Blob WHERE needs_download = 1")
