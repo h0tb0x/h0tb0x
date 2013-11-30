@@ -212,10 +212,8 @@ func (this *ApiMgr) SetExt(host net.IP, port uint16) {
 	this.extHost = host.String()
 	this.extPort = port
 	this.mutex.Unlock()
-	if !host.IsLoopback() {
-		this.Log.Printf("Publishing Rendezvous %s:%d to %s", this.extHost, this.extPort, this.rshost)
-		this.rclient.Put("http://"+this.rshost, this.Ident, this.extHost, this.extPort)
-	}
+	this.Log.Printf("Publishing Rendezvous %s:%d to %s", this.extHost, this.extPort, this.rshost)
+	this.rclient.Put("http://"+this.rshost, this.Ident, this.extHost, this.extPort)
 }
 
 func (this *ApiMgr) getSelf(w http.ResponseWriter, req *http.Request) {
