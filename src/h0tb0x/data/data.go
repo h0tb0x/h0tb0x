@@ -47,44 +47,51 @@ type DataMgr struct {
 
 // Add 'incoming advert'
 func (this *DataMgr) addAdvert(who int, topic string, key string) {
-	this.Db.Exec("INSERT OR IGNORE INTO Advert (key, topic, friend_id) VALUES (?, ?, ?)",
+	_, err := this.Db.Exec(
+		"INSERT OR IGNORE INTO Advert (key, topic, friend_id) VALUES (?, ?, ?)",
 		key, topic, who)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // Del 'incoming advert'
 func (this *DataMgr) delAdvert(who int, topic string, key string) {
-	this.Db.Exec("DELETE FROM Advert WHERE key=? AND topic=? AND friend_id=?",
+	_, err := this.Db.Exec("DELETE FROM Advert WHERE key = ? AND topic = ? AND friend_id = ?",
 		key, topic, who)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // Check if have any incoming adverts
 func (this *DataMgr) anyAdverts(key string) bool {
-	row := this.Db.SingleQuery("SELECT COUNT(*) FROM Advert WHERE key=?", key)
-	var count int
-	this.Db.Scan(row, &count)
+	count, err := this.Db.SelectInt("SELECT COUNT(*) FROM Advert WHERE key = ?", key)
+	if err != nil {
+		panic(err)
+	}
 	return count > 0
 }
 
 // Get everyone advertizing a blob
 func (this *DataMgr) allAdverts(key string) []int {
-	rows := this.Db.MultiQuery("SELECT friend_id FROM Advert WHERE key=? GROUP BY friend_id", key)
-	out := []int{}
-	for rows.Next() {
-		var friend int
-		this.Db.Scan(rows, &friend)
-		out = append(out, friend)
+	fmt.Printf("allAdverts: %q\n", key)
+	var list []int
+	_, err := this.Db.Select(&list, "SELECT friend_id FROM Advert WHERE key = ? GROUP BY friend_id", key)
+	if err != nil {
+		panic(err)
 	}
-	return out
+	return list
 }
 
 // Change state of outgoing advert
 func (this *DataMgr) advertize(topic string, key string, up bool) {
 	this.Log.Printf("Doing advertize, topic = %s, key = %s, up = %d", topic, key, up)
 	rec := &sync.Record{
-		RecordType: sync.RTAdvert,
-		Topic:      topic,
-		Key:        key,
-		Author:     "$",
+		Type:   sync.RTAdvert,
+		Topic:  topic,
+		Key:    key,
+		Author: "$",
 	}
 	if up {
 		rec.Value = []byte{1}
@@ -97,19 +104,26 @@ func (this *DataMgr) advertize(topic string, key string, up bool) {
 // Return a deserialized object, or nil if none
 func (this *DataMgr) maybeGetObj(key string) *DataObj {
 	//this.Log.Printf("Getting Object: %s", key)
-	row := this.Db.SingleQuery("SELECT data FROM Blob WHERE key=?", key)
+	// row := this.Db.SingleQuery("SELECT data FROM Blob WHERE key=?", key)
 	var data []byte
-	if this.Db.MaybeScan(row, &data) {
-		var obj *DataObj
-		//this.Log.Printf("Found Object: %s, data = %v", key, data)
-		err := transfer.DecodeBytes(data, &obj)
-		if err != nil {
-			panic(err)
-		}
-		obj.mgr = this
-		return obj
+	err := this.Db.SelectOne(&data, "SELECT data FROM Blob WHERE key = ?", key)
+	if err != nil {
+		panic(err)
 	}
-	return nil
+	if len(data) == 0 {
+		return nil
+	}
+	// if this.Db.MaybeScan(row, &data) {
+	var obj *DataObj
+	//this.Log.Printf("Found Object: %s, data = %v", key, data)
+	err = transfer.DecodeBytes(data, &obj)
+	if err != nil {
+		panic(err)
+	}
+	obj.mgr = this
+	return obj
+	// }
+	// return nil
 }
 
 // Return or create an object
@@ -135,17 +149,26 @@ func (this *DataMgr) writeObj(obj *DataObj) {
 			os.Remove(name)
 		}
 		//this.Log.Printf("Deleting")
-		this.Db.Exec("DELETE FROM Blob WHERE Key = ?", obj.Key)
+		_, err := this.Db.Exec("DELETE FROM Blob WHERE Key = ?", obj.Key)
+		if err != nil {
+			panic(err)
+		}
 	} else {
 		//this.Log.Printf("Deleting and Storing")
-		this.Db.Exec("DELETE FROM Blob WHERE Key = ?", obj.Key)
+		_, err := this.Db.Exec("DELETE FROM Blob WHERE Key = ?", obj.Key)
+		if err != nil {
+			panic(err)
+		}
 		data, err := transfer.EncodeBytes(obj)
 		if err != nil {
 			panic(err)
 		}
 		//this.Log.Printf("Putting data as: %v", data)
-		this.Db.Exec("INSERT INTO Blob (key, needs_download, data) VALUES (?, ?, ?)",
+		_, err = this.Db.Exec("INSERT INTO Blob (key, needs_download, data) VALUES (?, ?, ?)",
 			obj.Key, obj.State == DSReady && !obj.Downloading, data)
+		if err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -316,21 +339,27 @@ func (this *DataMgr) downloadLoop() {
 	for !this.isClosing {
 		this.SyncMgr.Log.Printf("Looking things to download\n")
 		// Get a object to download
-		var key string
-		row := this.Db.SingleQuery("SELECT key FROM Blob WHERE needs_download = 1")
-		if !this.Db.MaybeScan(row, &key) {
+		// var key string
+		key, err := this.Db.SelectNullStr("SELECT key FROM Blob WHERE needs_download = 1")
+		if err != nil {
+			panic(err)
+		}
+		if !key.Valid {
 			this.Log.Printf("Nothing to download, sleeping\n")
 			this.download.Wait()
 			continue
 		}
-		friends := this.allAdverts(key)
+		friends := this.allAdverts(key.String)
 		if len(friends) == 0 {
 			this.Log.Printf("Strangely got a download where len(friends) = 0")
-			this.Db.Exec("UPDATE Blob SET needs_download = 0 WHERE key = ?", key)
+			_, err := this.Db.Exec("UPDATE Blob SET needs_download = 0 WHERE key = ?", key)
+			if err != nil {
+				panic(err)
+			}
 			continue
 		}
 		friend := friends[rand.Intn(len(friends))]
-		obj := this.getObj(key)
+		obj := this.getObj(key.String)
 		obj.startDownload()
 		this.writeObj(obj)
 		this.lock.Unlock()
@@ -344,7 +373,7 @@ func (this *DataMgr) downloadLoop() {
 		both := io.MultiWriter(file, hasher)
 
 		tryTime := time.Now()
-		err := this.Send(link.ServiceData, friend, &send_buf, both)
+		err = this.Send(link.ServiceData, friend, &send_buf, both)
 		if err != nil && time.Now().Sub(tryTime) < 5*time.Second {
 			// TODO: Make this not suck
 			time.Sleep(5 * time.Second)
@@ -355,7 +384,7 @@ func (this *DataMgr) downloadLoop() {
 			this.Log.Printf("Download worked!")
 		}
 		this.lock.Lock()
-		obj = this.getObj(key)
+		obj = this.getObj(key.String)
 		obj.finishDownload(tmppath, err == nil)
 		this.writeObj(obj)
 	}

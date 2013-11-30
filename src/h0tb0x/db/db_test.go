@@ -2,11 +2,24 @@ package db
 
 import (
 	"io/ioutil"
+	. "launchpad.net/gocheck"
+	"os"
 	"testing"
 )
 
-func setup(t *testing.T) string {
-	schemas["test"] = &Schema{
+// Hook up gocheck into the "go test" runner.
+func Test(t *testing.T) { TestingT(t) }
+
+type TestDbSuite struct {
+	path string
+}
+
+func init() {
+	Suite(&TestDbSuite{})
+}
+
+func (this *TestDbSuite) SetUpTest(c *C) {
+	schemas["test"] = &schema{
 		name: "test",
 		latest: `
 CREATE TABLE Foo(
@@ -25,33 +38,25 @@ ALTER TABLE Foo ADD COLUMN name TEXT;
 `,
 		},
 	}
+
 	ftmp, err := ioutil.TempFile("", "")
-	if err != nil {
-		t.Fatalf("ioutil.TempFile failed: %v", err)
-	}
-	path := ftmp.Name()
-	ftmp.Close()
-	return path
+	c.Assert(err, IsNil)
+	defer ftmp.Close()
+	this.path = ftmp.Name()
 }
 
-func TestNew(t *testing.T) {
-	path := setup(t)
-
-	db := NewDatabase(path, "test")
-	if db.version != 2 {
-		t.Fatalf("Invalid version: %d", db.version)
-	}
-	db.Close()
+func (this *TestDbSuite) TearDownTest(c *C) {
+	os.Remove(this.path)
 }
 
-func TestMigration(t *testing.T) {
-	path := setup(t)
+func (this *TestDbSuite) TestNew(c *C) {
+	db := NewDatabase(this.path, "test")
+	c.Assert(db.version, Equals, int64(2))
+}
 
-	db := NewDatabase(path, "test")
-	if db.version != 2 {
-		t.Fatalf("Invalid version: %d", db.version)
-	}
-	db.Close()
+func (this *TestDbSuite) TestMigration(c *C) {
+	db := NewDatabase(this.path, "test")
+	c.Assert(db.version, Equals, int64(2))
 
 	latest := `
 CREATE TABLE Foo(
@@ -68,17 +73,12 @@ ALTER TABLE Foo ADD COLUMN author TEXT;
 	schema := schemas["test"]
 	schema.latest = latest
 	schema.migrations = append(schema.migrations, migration)
-	db = NewDatabase(path, "test")
-	if db.version != 3 {
-		t.Fatalf("Invalid version: %d", db.version)
-	}
-	db.Close()
+	db = NewDatabase(this.path, "test")
+	c.Assert(db.version, Equals, int64(3))
 }
 
-func TestBroken(t *testing.T) {
-	path := setup(t)
-
-	schemas["broken"] = &Schema{
+func (this *TestDbSuite) TestBroken(c *C) {
+	schemas["broken"] = &schema{
 		name: "broken",
 		latest: `
 CREATE TABLE Foo(
@@ -95,17 +95,11 @@ CREATE TABLE Foo(
 	}
 
 	// start with broken install (like from initial install party)
-	db := NewDatabase(path, "broken")
-	if db.version != 1 {
-		t.Fatalf("Invalid version: %d", db.version)
-	}
-	db.Close()
+	db := NewDatabase(this.path, "broken")
+	c.Assert(db.version, Equals, int64(1))
 
-	db = NewDatabase(path, "test")
-	if db.version != 2 {
-		t.Fatalf("Invalid version: %d", db.version)
-	}
-	db.Close()
+	db = NewDatabase(this.path, "test")
+	c.Assert(db.version, Equals, int64(2))
 
 	latest := `
 CREATE TABLE Foo(
@@ -122,9 +116,6 @@ ALTER TABLE Foo ADD COLUMN author TEXT;
 	schema := schemas["test"]
 	schema.latest = latest
 	schema.migrations = append(schema.migrations, migration)
-	db = NewDatabase(path, "test")
-	if db.version != 3 {
-		t.Fatalf("Invalid version: %d", db.version)
-	}
-	db.Close()
+	db = NewDatabase(this.path, "test")
+	c.Assert(db.version, Equals, int64(3))
 }

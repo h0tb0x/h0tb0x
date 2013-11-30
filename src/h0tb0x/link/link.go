@@ -3,10 +3,10 @@ package link
 import (
 	"crypto/tls"
 	"fmt"
+	"github.com/coopernurse/gorp"
 	"h0tb0x/base"
 	"h0tb0x/conn"
 	"h0tb0x/crypto"
-	"h0tb0x/db"
 	"h0tb0x/rendezvous"
 	"h0tb0x/transfer"
 	"io"
@@ -44,13 +44,15 @@ func (this *didWrite) Write(p []byte) (n int, err error) {
 }
 
 type friendInfo struct {
-	id          int
-	fingerprint *crypto.Digest
-	rendezvous  string
-	publicKey   *crypto.PublicIdentity
-	host        string
-	port        uint16
-	failed      bool
+	Id          int
+	Fingerprint []byte
+	Rendezvous  string
+	PublicKey   []byte `db:"public_key"`
+	Host        string
+	Port        uint16
+	fingerprint *crypto.Digest         `db:"-"`
+	publicKey   *crypto.PublicIdentity `db:"-"`
+	failed      bool                   `db:"-"`
 }
 
 type ListenerFunc func(id int, fingerprint *crypto.Digest, what FriendStatus)
@@ -108,7 +110,7 @@ func NewLinkMgr(theBase *base.Base, connMgr conn.ConnMgr) *LinkMgr {
 	transport.Dial = this.dial
 	this.client.Transport = transport
 	this.server.Handler = this
-
+	this.Db.AddTableWithName(friendInfo{}, "Friend").SetKeys(true, "Id")
 	return this
 }
 
@@ -173,7 +175,7 @@ func (this *LinkMgr) ServeHTTP(response http.ResponseWriter, request *http.Reque
 	this.wait.Add(1)
 	response.Header().Set("Content-Type", "application/binary")
 	check := &didWrite{inner: response, wrote: false}
-	err = handler(fi.id, ident.Fingerprint(), request.Body, check)
+	err = handler(fi.Id, ident.Fingerprint(), request.Body, check)
 	this.mutex.RUnlock()
 	this.wait.Done()
 
@@ -213,8 +215,8 @@ func (this *LinkMgr) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	// resolve the request
 	this.Log.Printf("Doing Rendezvous lookup")
-	if fi.failed || fi.host == "$" {
-		rec, err := this.rclient.Get("http://"+fi.rendezvous, fp)
+	if fi.failed || fi.Host == "$" {
+		rec, err := this.rclient.Get("http://"+fi.Rendezvous, fp)
 		if err == nil {
 			this.Log.Printf("Got new host: %s, port: %d", rec.Host, rec.Port)
 			fi = this.UpdateHostData(fi.fingerprint, rec.Host, rec.Port)
@@ -223,13 +225,13 @@ func (this *LinkMgr) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	if fi.host == "$" {
+	if fi.Host == "$" {
 		return nil, fmt.Errorf("Unable to connect, don't know address yet & rendezvous failed")
 	}
 
 	// re-write the url
 	req.URL.Scheme = "http"
-	req.URL.Host = fmt.Sprintf("%s:%d", fi.host, fi.port)
+	req.URL.Host = fmt.Sprintf("%s:%d", fi.Host, fi.Port)
 	return this.client.Do(req)
 }
 
@@ -281,47 +283,33 @@ func (this *LinkMgr) AddListener(listener ListenerFunc) {
 	this.listeners = append(this.listeners, listener)
 }
 
-func (this *LinkMgr) decodeFriend(row db.Row, failed bool) *friendInfo {
-	var id int
-	var fp []byte
-	var rendezvous string
-	var pubData []byte
-	var host string
-	var port uint16
-	this.Db.Scan(row, &id, &fp, &rendezvous, &pubData, &host, &port)
-	var fingerprint *crypto.Digest
-	err := transfer.DecodeBytes(fp, &fingerprint)
+func (this *friendInfo) PostGet(s gorp.SqlExecutor) error {
+	err := transfer.DecodeBytes(this.Fingerprint, &this.fingerprint)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	var publicKey *crypto.PublicIdentity
-	if pubData != nil {
-		err := transfer.DecodeBytes(pubData, &publicKey)
+	if this.PublicKey != nil {
+		err := transfer.DecodeBytes(this.PublicKey, &this.publicKey)
 		if err != nil {
-			panic(err)
+			return err
 		}
 	}
-	return &friendInfo{
-		id:          id,
-		fingerprint: fingerprint,
-		rendezvous:  rendezvous,
-		publicKey:   publicKey,
-		host:        host,
-		port:        port,
-		failed:      failed,
-	}
+	this.failed = false
+	return nil
 }
 
 // Kicks off the link manager, presumes Callbacks has been set
 func (this *LinkMgr) Start() error {
-	rows := this.Db.MultiQuery(
-		"SELECT id, fingerprint, rendezvous, public_key, host, port FROM Friend")
-	for rows.Next() {
-		fi := this.decodeFriend(rows, false)
-		this.friendsByFp[fi.fingerprint.String()] = fi
-		this.friendsById[fi.id] = fi
-		hostKey := fmt.Sprintf("%s:%d", fi.host, fi.port)
-		this.friendsByHost[hostKey] = fi
+	var friends []friendInfo
+	_, err := this.Db.Select(&friends, "SELECT * FROM Friend")
+	if err != nil {
+		panic(err)
+	}
+	for _, fi := range friends {
+		this.friendsByFp[fi.fingerprint.String()] = &fi
+		this.friendsById[fi.Id] = &fi
+		hostKey := fmt.Sprintf("%s:%d", fi.Host, fi.Port)
+		this.friendsByHost[hostKey] = &fi
 	}
 
 	this.mutex.RLock()
@@ -350,7 +338,6 @@ func (this *LinkMgr) Start() error {
 func (this *LinkMgr) Stop() {
 	this.listener.Close()
 	this.wait.Wait()
-	this.Db.Close()
 }
 
 // Add a new friend, or if the friend exists, update rendezvous address
@@ -358,31 +345,33 @@ func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, rendezvous string) {
 	this.mutex.Lock()
 	defer this.mutex.Unlock()
 	// Make or insert friend
-	result := this.Db.Exec(`
-		INSERT OR IGNORE INTO Friend (
-			id, fingerprint, rendezvous, host
-		) VALUES (
-			NULL, ?, ?, '$'
-		)`,
-		fp.Bytes(), rendezvous)
-	id64, _ := result.LastInsertId()
-	id := int(id64)
-
-	this.Db.Exec("UPDATE Friend SET rendezvous = ? WHERE id = ?", rendezvous, id)
-
+	var fi friendInfo
+	err := this.Db.SelectOne(&fi, "SELECT * FROM Friend WHERE fingerprint=?", fp.Bytes())
+	if err != nil {
+		panic(err)
+	}
+	fi.Rendezvous = rendezvous
+	if fi.Id == 0 {
+		fi.fingerprint = fp
+		fi.Fingerprint = fp.Bytes()
+		fi.Host = "$"
+		err := this.Db.Insert(&fi)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		_, err := this.Db.Update(&fi)
+		if err != nil {
+			panic(err)
+		}
+	}
 	_, ok := this.friendsByFp[fp.String()]
-	row := this.Db.SingleQuery(`
-		SELECT 
-			id, fingerprint, rendezvous, public_key, host, port 
-		FROM Friend 
-		WHERE id = ?`, id)
-	fi := this.decodeFriend(row, false)
-	this.friendsByFp[fi.fingerprint.String()] = fi
-	this.friendsById[id] = fi
+	this.friendsByFp[fp.String()] = &fi
+	this.friendsById[fi.Id] = &fi
 	if !ok {
 		// If it was added, signal upper layer
 		for _, onListener := range this.listeners {
-			onListener(id, fp, FriendAdded)
+			onListener(fi.Id, fp, FriendAdded)
 		}
 	}
 }
@@ -391,21 +380,25 @@ func (this *LinkMgr) AddUpdateFriend(fp *crypto.Digest, rendezvous string) {
 func (this *LinkMgr) UpdateHostData(fp *crypto.Digest, host string, port uint16) *friendInfo {
 	this.mutex.Lock()
 	defer this.mutex.Unlock()
-	row := this.Db.SingleQuery("SELECT id FROM Friend WHERE fingerprint = ?", fp.Bytes())
-	var id int
-	this.Db.Scan(row, &id)
-	this.Db.Exec("UPDATE Friend SET host = ?, port = ? WHERE id = ?", host, port, id)
-	row = this.Db.SingleQuery(`
-		SELECT 
-			id, fingerprint, rendezvous, public_key, host, port 
-		FROM Friend 
-		WHERE id = ?`, id)
-	fi := this.decodeFriend(row, false)
-	this.friendsByFp[fi.fingerprint.String()] = fi
-	this.friendsById[id] = fi
-	hostKey := fmt.Sprintf("%s:%d", fi.host, fi.port)
-	this.friendsByHost[hostKey] = fi
-	return fi
+	var fi friendInfo
+	err := this.Db.SelectOne(&fi, "SELECT * FROM Friend WHERE fingerprint=?", fp.Bytes())
+	if err != nil {
+		panic(err)
+	}
+	if fi.Id == 0 {
+		panic("Invalid fp")
+	}
+	fi.Host = host
+	fi.Port = port
+	_, err = this.Db.Update(&fi)
+	if err != nil {
+		panic(err)
+	}
+	this.friendsByFp[fi.fingerprint.String()] = &fi
+	this.friendsById[fi.Id] = &fi
+	hostKey := fmt.Sprintf("%s:%d", fi.Host, fi.Port)
+	this.friendsByHost[hostKey] = &fi
+	return &fi
 }
 
 // Add a new friend, or if the friend exists, update the host and port data.
@@ -417,11 +410,14 @@ func (this *LinkMgr) RemoveFriend(fp *crypto.Digest) {
 		return
 	}
 	for _, onListener := range this.listeners {
-		onListener(fi.id, fp, FriendRemoved)
+		onListener(fi.Id, fp, FriendRemoved)
 	}
-	this.Db.Exec("DELETE FROM FRIEND WHERE id = ?", fi.id)
+	_, err := this.Db.Delete(fi)
+	if err != nil {
+		panic(err)
+	}
 	delete(this.friendsByFp, fp.String())
-	delete(this.friendsById, fi.id)
+	delete(this.friendsById, fi.Id)
 }
 
 // Send a request to a friend and get a response

@@ -9,6 +9,7 @@ import (
 	"h0tb0x/crypto"
 	"h0tb0x/db"
 	"h0tb0x/transfer"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -23,13 +24,13 @@ var (
 )
 
 // Represents a record that can be published into the rendezvous server
-type RecordJson struct {
-	Fingerprint string
-	PublicKey   string
-	Version     int
-	Host        string
-	Port        uint16
-	Signature   string
+type Record struct {
+	Fingerprint string `db:"fingerprint"`
+	PublicKey   string `db:"public_key"`
+	Timestamp   int64  `db:"version"`
+	Host        string `db:"host"`
+	Port        uint16 `db:"port"`
+	Signature   string `db:"signature"`
 }
 
 type Client struct {
@@ -44,7 +45,7 @@ func NewClient(connMgr conn.ConnMgr) *Client {
 // Also validated signature.
 // Returns nil on error.
 // TODO: timeout support
-func (this *Client) Get(url, fingerprint string) (*RecordJson, error) {
+func (this *Client) Get(url, fingerprint string) (*Record, error) {
 	resp, err := this.Client.Get(url + "/" + fingerprint)
 	if err != nil {
 		return nil, err
@@ -53,17 +54,17 @@ func (this *Client) Get(url, fingerprint string) (*RecordJson, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Invalid http return: %d - %s", resp.StatusCode, resp.Status)
 	}
-	var rec *RecordJson
-	err = json.NewDecoder(resp.Body).Decode(&rec)
+	var record *Record
+	err = json.NewDecoder(resp.Body).Decode(&record)
 	if err != nil {
 		return nil, err
 	}
 	// fmt.Printf("GetRendezvous:\n")
-	// rec.dump()
-	if !rec.CheckSignature() {
-		return nil, fmt.Errorf("Bad signature for record")
+	// record.dump()
+	if !record.CheckSignature() {
+		return nil, fmt.Errorf("Signature validation failed")
 	}
-	return rec, nil
+	return record, nil
 }
 
 // Puts a rendezvous record to the address in the record.
@@ -71,10 +72,10 @@ func (this *Client) Get(url, fingerprint string) (*RecordJson, error) {
 // TODO: timeout support
 func (this *Client) Put(url string, ident *crypto.SecretIdentity, host string, port uint16) error {
 	// fmt.Printf("PutRendezvous:\n")
-	record := &RecordJson{
-		Version: int(time.Now().Unix()),
-		Host:    host,
-		Port:    port,
+	record := &Record{
+		Timestamp: time.Now().Unix(),
+		Host:      host,
+		Port:      port,
 	}
 	record.Sign(ident)
 	// record.dump()
@@ -89,14 +90,19 @@ func (this *Client) Put(url string, ident *crypto.SecretIdentity, host string, p
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Invalid status on Put: %d", resp.StatusCode)
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("PUT failed: [%d] %s", resp.StatusCode, body)
 	}
 	return nil
 }
 
 // Validates the signature on a record
-func (this *RecordJson) CheckSignature() bool {
+func (this *Record) CheckSignature() bool {
 	var pub *crypto.PublicIdentity
 	var sig *crypto.Signature
 	err := transfer.DecodeString(this.PublicKey, &pub)
@@ -114,7 +120,7 @@ func (this *RecordJson) CheckSignature() bool {
 		fmt.Printf("Error: CheckSignature fingerprint mismatch: %s\n", this.Fingerprint)
 		return false
 	}
-	digest := crypto.HashOf(this.Version, this.Host, this.Port)
+	digest := crypto.HashOf(this.Timestamp, this.Host, this.Port)
 	if !pub.Verify(digest, sig) {
 		fmt.Printf("Error: CheckSignature failed to verify signature\n")
 		return false
@@ -122,21 +128,21 @@ func (this *RecordJson) CheckSignature() bool {
 	return true
 }
 
-// Given that Version, Host and Port are set, sets the rest of the fields and signs
-func (this *RecordJson) Sign(private *crypto.SecretIdentity) {
+// Given that Timestamp, Host and Port are set, sets the rest of the fields and signs
+func (this *Record) Sign(private *crypto.SecretIdentity) {
 	pub := private.Public()
 	fp := private.Fingerprint()
 	this.Fingerprint = fp.String()
 	this.PublicKey = transfer.AsString(pub)
-	digest := crypto.HashOf(this.Version, this.Host, this.Port)
+	digest := crypto.HashOf(this.Timestamp, this.Host, this.Port)
 	sig := private.Sign(digest)
 	this.Signature = transfer.AsString(sig)
 }
 
-func (this *RecordJson) dump() {
+func (this *Record) dump() {
 	fmt.Printf("\tFingerprint: %q\n", this.Fingerprint)
 	fmt.Printf("\tPublicKey: %q\n", this.PublicKey)
-	fmt.Printf("\tVersion: %d\n", this.Version)
+	fmt.Printf("\tTimestamp: %d\n", this.Timestamp)
 	fmt.Printf("\tHost: %q\n", this.Host)
 	fmt.Printf("\tPort: %d\n", this.Port)
 	fmt.Printf("\tSignature: %q\n", this.Signature)
@@ -173,7 +179,7 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	key := vars["key"]
 	// fmt.Printf("PUT request for key %s\n", key)
-	var record *RecordJson
+	var record *Record
 	if !decodeJsonBody(w, req, &record) {
 		return
 	}
@@ -182,76 +188,62 @@ func (this *RendezvousMgr) onPut(w http.ResponseWriter, req *http.Request) {
 		sendError(w, http.StatusUnauthorized, "Unable to validate record")
 		return
 	}
-	recno := -1
-	row := this.database.SingleQuery(`
+	tx, err := this.db.Begin()
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	recno, err := tx.SelectNullInt(`
 		SELECT version 
 		FROM Rendezvous 
 		WHERE fingerprint = ?`, record.Fingerprint)
-	exists := this.database.MaybeScan(row, &recno)
-	if record.Version <= recno {
-		sendError(w, http.StatusConflict, "Record too old")
+	if err != nil {
+		tx.Rollback()
+		sendError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if exists {
-		this.database.Exec(`
-			UPDATE Rendezvous 
-			SET 
-				version = ?, 
-				host = ?, 
-				port = ?, 
-				signature = ?
-			WHERE
-				fingerprint = ?`,
-			record.Version,
-			record.Host,
-			record.Port,
-			record.Signature,
-			record.Fingerprint)
+	if recno.Valid {
+		if record.Timestamp <= recno.Int64 {
+			tx.Rollback()
+			sendError(w, http.StatusConflict, "Record too old")
+			return
+		}
+		_, err = tx.Update(record)
+		if err != nil {
+			tx.Rollback()
+			sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	} else {
-		this.database.Exec(`
-			INSERT INTO Rendezvous (
-				fingerprint, 
-				public_key, 
-				version, 
-				host, 
-				port, 
-				signature
-			) VALUES (?, ?, ?, ?, ?, ?)`,
-			record.Fingerprint, record.PublicKey, record.Version,
-			record.Host, record.Port, record.Signature)
+		err := tx.Insert(record)
+		if err != nil {
+			tx.Rollback()
+			sendError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
+	tx.Commit()
 }
 
 func (this *RendezvousMgr) onGet(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	key := vars["key"]
-	// fmt.Printf("GET request for key %s\n", key)
-	row := this.database.SingleQuery(`
-		SELECT 
-			public_key, 
-			version, 
-			host, 
-			port, 
-			signature
-		FROM Rendezvous 
-		WHERE fingerprint = ?`, key)
-	record := &RecordJson{Fingerprint: key}
-	if !this.database.MaybeScan(row,
-		&record.PublicKey,
-		&record.Version,
-		&record.Host,
-		&record.Port,
-		&record.Signature) {
+	record, err := this.db.Get(&Record{}, key)
+	if err != nil {
+		sendError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if record == nil {
 		sendError(w, http.StatusNotFound, "Unknown Key")
 		return
 	}
-	// record.dump()
+	// record.(*Record).dump()
 	sendJson(w, record)
 }
 
 // Represents the 'server' side of the Rendezvous protocol
 type RendezvousMgr struct {
-	database *db.Database
+	db       *db.Database
 	connMgr  conn.ConnMgr
 	listener net.Listener
 	router   *mux.Router
@@ -260,11 +252,10 @@ type RendezvousMgr struct {
 }
 
 func NewRendezvousMgr(connMgr conn.ConnMgr, port uint16, file string) *RendezvousMgr {
-	database := db.NewDatabase(file, "rendezvous")
 	router := mux.NewRouter()
 	this := &RendezvousMgr{
-		database: database,
-		connMgr:  connMgr,
+		db:      db.NewDatabase(file, "rendezvous"),
+		connMgr: connMgr,
 		server: &http.Server{
 			Addr:    fmt.Sprintf(":%d", port),
 			Handler: router,
@@ -272,6 +263,7 @@ func NewRendezvousMgr(connMgr conn.ConnMgr, port uint16, file string) *Rendezvou
 	}
 	router.HandleFunc("/{key}", this.onGet).Methods("GET")
 	router.HandleFunc("/{key}", this.onPut).Methods("PUT")
+	this.db.AddTableWithName(Record{}, "Rendezvous").SetKeys(false, "fingerprint")
 	return this
 }
 

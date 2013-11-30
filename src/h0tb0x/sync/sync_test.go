@@ -96,11 +96,11 @@ func (this *TestSyncSuite) TestSync(c *C) {
 	bob.wg.Add(1)
 
 	alice.sync.Put(&Record{
-		RecordType: RTData,
-		Topic:      topic,
-		Key:        key,
-		Value:      []byte(value),
-		Author:     "unused",
+		Type:   RTData,
+		Topic:  topic,
+		Key:    key,
+		Value:  []byte(value),
+		Author: "unused",
 	})
 
 	// Hang out to make sure things aren't chatty
@@ -110,18 +110,18 @@ func (this *TestSyncSuite) TestSync(c *C) {
 	bob.wg.Add(2)
 
 	alice.sync.Put(&Record{
-		RecordType: RTData,
-		Topic:      topic,
-		Key:        "hello",
-		Value:      []byte("world"),
-		Author:     "unused",
+		Type:   RTData,
+		Topic:  topic,
+		Key:    "hello",
+		Value:  []byte("world"),
+		Author: "unused",
 	})
 	alice.sync.Put(&Record{
-		RecordType: RTData,
-		Topic:      topic,
-		Key:        "what",
-		Value:      []byte("the"),
-		Author:     "unused",
+		Type:   RTData,
+		Topic:  topic,
+		Key:    "what",
+		Value:  []byte("the"),
+		Author: "unused",
 	})
 
 	bob.wg.Wait()

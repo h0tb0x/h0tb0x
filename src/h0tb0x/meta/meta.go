@@ -23,14 +23,14 @@ type collectionBasis struct {
 }
 
 func signRecord(rec *sync.Record, writer *crypto.SecretIdentity) {
-	hash := crypto.HashOf(rec.RecordType, rec.Topic, rec.Key, rec.Value, rec.Priority)
+	hash := crypto.HashOf(rec.Type, rec.Topic, rec.Key, rec.Value, rec.Priority)
 	sig := writer.Sign(hash)
 	rec.Author = writer.Fingerprint().String()
 	rec.Signature = transfer.AsBytes(sig)
 }
 
 func verifyRecord(rec *sync.Record, writer *crypto.PublicIdentity) bool {
-	hash := crypto.HashOf(rec.RecordType, rec.Topic, rec.Key, rec.Value, rec.Priority)
+	hash := crypto.HashOf(rec.Type, rec.Topic, rec.Key, rec.Value, rec.Priority)
 	var sig *crypto.Signature
 	err := transfer.DecodeBytes(rec.Signature, &sig)
 	if err != nil {
@@ -86,20 +86,20 @@ func (this *MetaMgr) CreateSpecialCollection(owner *crypto.SecretIdentity, uniq 
 	}
 
 	basis := &sync.Record{
-		RecordType: sync.RTBasis,
-		Topic:      cid,
-		Key:        "$",
-		Author:     pubkey.Fingerprint().String(),
-		Value:      transfer.AsBytes(cb),
+		Type:   sync.RTBasis,
+		Topic:  cid,
+		Key:    "$",
+		Author: pubkey.Fingerprint().String(),
+		Value:  transfer.AsBytes(cb),
 	}
 	signRecord(basis, owner)
 	this.SyncMgr.Put(basis)
 
 	owr := &sync.Record{
-		RecordType: sync.RTWriter,
-		Topic:      cid,
-		Key:        pubkey.Fingerprint().String(),
-		Value:      transfer.AsBytes(pubkey),
+		Type:  sync.RTWriter,
+		Topic: cid,
+		Key:   pubkey.Fingerprint().String(),
+		Value: transfer.AsBytes(pubkey),
 	}
 	signRecord(owr, owner)
 	this.SyncMgr.Put(owr)
@@ -142,11 +142,11 @@ func (this *MetaMgr) AddWriter(cid string, owner *crypto.SecretIdentity, writer 
 
 	// Add the record
 	wrr := &sync.Record{
-		RecordType: sync.RTWriter,
-		Topic:      cid,
-		Key:        key,
-		Priority:   priority,
-		Value:      newValue,
+		Type:     sync.RTWriter,
+		Topic:    cid,
+		Key:      key,
+		Priority: priority,
+		Value:    newValue,
 	}
 	signRecord(wrr, owner)
 	this.SyncMgr.Put(wrr)
@@ -175,12 +175,12 @@ func (this *MetaMgr) Put(cid string, writer *crypto.SecretIdentity, key string, 
 		priority = old.Priority + 1
 	}
 	rec := &sync.Record{
-		RecordType: sync.RTData,
-		Topic:      cid,
-		Key:        key,
-		Value:      data,
-		Priority:   priority,
-		Author:     myFingerprint,
+		Type:     sync.RTData,
+		Topic:    cid,
+		Key:      key,
+		Value:    data,
+		Priority: priority,
+		Author:   myFingerprint,
 	}
 	signRecord(rec, writer)
 	if old != nil {
@@ -226,7 +226,7 @@ func (this *MetaMgr) decodeBasis(rec *sync.Record, check bool) *crypto.PublicIde
 
 func (this *MetaMgr) verifyUpdate(rec *sync.Record, signer *crypto.PublicIdentity) {
 	// Get the current version of this record
-	curRec := this.SyncMgr.GetAuthor(rec.RecordType, rec.Topic, rec.Key, rec.Author)
+	curRec := this.SyncMgr.GetAuthor(rec.Type, rec.Topic, rec.Key, rec.Author)
 	if curRec != nil {
 		// If my record is newer, ignore incoming
 		if curRec.Priority > rec.Priority {
@@ -246,11 +246,11 @@ func (this *MetaMgr) verifyUpdate(rec *sync.Record, signer *crypto.PublicIdentit
 
 	// All checks passed, Forward to everyone and store!
 	// Grab Lock
-	if rec.RecordType == sync.RTData && curRec != nil {
+	if rec.Type == sync.RTData && curRec != nil {
 		this.doCallbacks(rec.Topic, rec.Key, curRec.Value, rec.Author, false)
 	}
 	this.SyncMgr.Put(rec)
-	if rec.RecordType == sync.RTData {
+	if rec.Type == sync.RTData {
 		this.doCallbacks(rec.Topic, rec.Key, rec.Value, rec.Author, true)
 	}
 	// Drop Lock

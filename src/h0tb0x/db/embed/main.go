@@ -22,7 +22,7 @@ type codeArgs struct {
 
 const CODE = `package {{.Package}}
 func init() {
-	schemas["{{.Name}}"] = &Schema{
+	schemas["{{.Name}}"] = &schema{
 		name: "{{.Name}}",
 		latest: {{.Latest}},
 		migrations: []string{

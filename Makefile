@@ -5,7 +5,7 @@ ifeq ($(OS),Darwin)
 	export CC=gcc-4.2
 endif
 
-.PHONY: deps schema go test web 
+.PHONY: deps db go test web 
 .PHONY: clean clean_go clean_web 
 .PHONY: docs clean_docs
 
@@ -24,9 +24,11 @@ deps: bin/gpm
 
 go: deps quick
 
-quick:
+db:
 	bin/embed src/h0tb0x/db/h0tb0x
 	bin/embed src/h0tb0x/db/rendezvous
+
+quick: db
 	go fmt h0tb0x/...
 	go install h0tb0x
 
@@ -55,3 +57,7 @@ clean_docs:
 
 docs:
 	make -C doc
+
+godoc:
+	-killall godoc 2> /dev/null
+	godoc -http=:6060 &
