@@ -12,11 +12,11 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -27,7 +27,7 @@ type upnpNAT struct {
 	ourIP      string
 }
 
-func Discover() (nat NAT, err error) {
+func UpnpDiscover() (nat NAT, err error) {
 	ssdp, err := net.ResolveUDPAddr("udp4", "239.255.255.250:1900")
 	if err != nil {
 		return
@@ -261,125 +261,114 @@ func combineURL(rootURL, subURL string) string {
 	return rootURL[0:protoEndIndex+len(protocolEnd)+rootIndex] + subURL
 }
 
-func soapRequest(url, function, message string) (r *http.Response, err error) {
-	//fullMessage := "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
-	//	"<SOAP-ENV:Envelope xmlns:SOAP-ENV=\"http://schemas.xmlsoap.org/soap/envelope/\" SOAP-ENV:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">" +
-	//	"<SOAP-ENV:Body>" + message + "</SOAP-ENV:Body></SOAP-ENV:Envelope>"
+func (this *upnpNAT) soapRequest(function, message string) (*http.Response, error) {
+	const format = `
+<?xml version="1.0"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+	<s:Body>%s</s:Body>
+</s:Envelope>`
 
-	fullMessage := "<?xml version=\"1.0\"?>" +
-		"<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">\r\n" +
-		"<s:Body>" + message + "</s:Body></s:Envelope>"
+	soap := fmt.Sprintf(format, message)
 
-	req, err := http.NewRequest("POST", url, strings.NewReader(fullMessage))
+	req, err := http.NewRequest("POST", this.serviceURL, strings.NewReader(soap))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "text/xml ; charset=\"utf-8\"")
+	req.Header.Set("Content-Type", `text/xml ; charset="utf-8"`)
 	req.Header.Set("User-Agent", "Darwin/10.0.0, UPnP/1.0, MiniUPnPc/1.3")
 	// req.Header.Set("Transfer-Encoding", "chunked")
-	req.Header.Set("SOAPAction", "\"urn:schemas-upnp-org:service:WANIPConnection:1#"+function+"\"")
-	// req.Header.Set("SOAPAction", "\"urn:schemas-upnp-org:service:WANPPPConnection:1#"+function+"\"")
+	req.Header.Set("SOAPAction", fmt.Sprintf(`"urn:schemas-upnp-org:service:%s:1#%s"`, this.service, function))
 	req.Header.Set("Connection", "Close")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
 
-	// log.Stderr("soapRequest ", req)
-	// log.Println("soapRequest URL:  ", url)
-	// log.Println("soapRequest Message:  ", fullMessage)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return resp, err
+	}
+	defer resp.Body.Close()
 
-	r, err = http.DefaultClient.Do(req)
-	//	if r.Body != nil {
-	//		defer r.Body.Close()
-	//	}
-
-	if r.StatusCode >= 400 {
+	if resp.StatusCode >= 400 {
 		// log.Stderr(function, r.StatusCode)
-		err = errors.New("soapRequest error - StatusCode " + strconv.Itoa(r.StatusCode) + " for " + function + "()")
-		//		err = errors.New("soapRequest error - StatusString " + r.Status)
-		r = nil
-		return
-	} // else {
-	//		log.Println("soapRequest successful, StatusCode:  ", strconv.Itoa(r.StatusCode))
-	//	}
-	return
+		return nil, fmt.Errorf("soapRequest error - StatusCode %d for %s()", resp.StatusCode, function)
+	}
+	return resp, nil
 }
 
 type externalIP struct {
 	ExternalIpAddress string `xml:"Body>GetExternalIPAddressResponse>NewExternalIPAddress"`
 }
 
-func (n *upnpNAT) getExternalIPAddress() (extip externalIP, err error) {
-
-	message := "<u:GetExternalIPAddress xmlns:u=\"urn:schemas-upnp-org:service:" +
-		n.service + ":1\">\r\n" + "</u:GetExternalIPAddress>"
-
-	var response *http.Response
-	response, err = soapRequest(n.serviceURL, "GetExternalIPAddress", message)
+func (this *upnpNAT) getExternalIPAddress() (*externalIP, error) {
+	const format = `
+<u:GetExternalIPAddress xmlns:u="urn:schemas-upnp-org:service:%s:1"></u:GetExternalIPAddress>
+`
+	msg := fmt.Sprintf(format, this.service)
+	resp, err := this.soapRequest("GetExternalIPAddress", msg)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	err = xml.NewDecoder(response.Body).Decode(&extip)
+	var addr externalIP
+	err = xml.NewDecoder(resp.Body).Decode(&addr)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	response.Body.Close()
-	return
+	return &addr, nil
 }
 
-func (n *upnpNAT) GetExternalAddress() (addr net.IP, err error) {
-	extip, err := n.getExternalIPAddress()
+func (this *upnpNAT) GetExternalAddress() (net.IP, error) {
+	extip, err := this.getExternalIPAddress()
 	if err != nil {
-		return
+		return nil, err
 	}
-	addr = net.ParseIP(extip.ExternalIpAddress)
-	return
+	addr := net.ParseIP(extip.ExternalIpAddress)
+	return addr, nil
 }
 
-func (n *upnpNAT) AddPortMapping(protocol string, externalPort, internalPort int, description string, timeout int) (mappedExternalPort int, err error) {
-	// A single concatenation would break ARM compilation.
-	message := "<u:AddPortMapping xmlns:u=\"urn:schemas-upnp-org:service:" +
-		n.service + ":1\">\r\n" + "<NewRemoteHost></NewRemoteHost><NewExternalPort>" +
-		strconv.Itoa(externalPort)
-	message += "</NewExternalPort><NewProtocol>" + protocol + "</NewProtocol>"
-	message += "<NewInternalPort>" + strconv.Itoa(internalPort) + "</NewInternalPort>" +
-		"<NewInternalClient>" + n.ourIP + "</NewInternalClient>" +
-		"<NewEnabled>1</NewEnabled><NewPortMappingDescription>"
-	message += description +
-		"</NewPortMappingDescription><NewLeaseDuration>" + strconv.Itoa(timeout) +
-		"</NewLeaseDuration></u:AddPortMapping>"
+func (this *upnpNAT) AddPortMapping(
+	proto string,
+	internalPort, externalPort uint16,
+	description string,
+	timeout int) (uint16, error) {
+	const format = `
+<u:AddPortMapping xmlns:u="urn:schemas-upnp-org:service:%s:1">
+	<NewRemoteHost></NewRemoteHost>
+	<NewExternalPort>%d</NewExternalPort>
+	<NewProtocol>%s</NewProtocol>
+	<NewInternalPort>%d</NewInternalPort>
+	<NewInternalClient>%s</NewInternalClient>
+	<NewEnabled>1</NewEnabled>
+	<NewPortMappingDescription>%s</NewPortMappingDescription>
+	<NewLeaseDuration>%d</NewLeaseDuration>
+</u:AddPortMapping>`
 
-	var response *http.Response
-	response, err = soapRequest(n.serviceURL, "AddPortMapping", message)
+	msg := fmt.Sprintf(format,
+		this.service, externalPort, proto, internalPort, this.ourIP, description, timeout)
+	_, err := this.soapRequest("AddPortMapping", msg)
 	if err != nil {
-		log.Println("soapRequest returned error:  ", err)
-		return
+		log.Println("soapRequest returned error:", err)
+		return 0, err
 	}
 
 	// TODO: check response to see if the port was forwarded
 	// log.Println(message, response)
-	mappedExternalPort = externalPort
-	_ = response
-	return
+	return externalPort, nil
 }
 
-func (n *upnpNAT) DeletePortMapping(protocol string, externalPort, internalPort int) (err error) {
+func (this *upnpNAT) DeletePortMapping(proto string, externalPort, internalPort int) error {
+	const format = `
+<u:DeletePortMapping xmlns:u="urn:schemas-upnp-org:service:%s:1\">
+	<NewRemoteHost></NewRemoteHost>
+	<NewExternalPort>%d</NewExternalPort>
+	<NewProtocol>%s</NewProtocol>
+</u:DeletePortMapping>`
 
-	message := "<u:DeletePortMapping xmlns:u=\"urn:schemas-upnp-org:service:" +
-		n.service + ":1\">\r\n" +
-		"<NewRemoteHost></NewRemoteHost><NewExternalPort>" + strconv.Itoa(externalPort) +
-		"</NewExternalPort><NewProtocol>" + protocol + "</NewProtocol>" +
-		"</u:DeletePortMapping>"
+	msg := fmt.Sprintf(format, this.service, externalPort, proto)
 
-	var response *http.Response
-	response, err = soapRequest(n.serviceURL, "DeletePortMapping", message)
-	if err != nil {
-		return
-	}
-
+	_, err := this.soapRequest("DeletePortMapping", msg)
 	// TODO: check response to see if the port was deleted
 	// log.Println(message, response)
-	_ = response
-	return
+	return err
 }

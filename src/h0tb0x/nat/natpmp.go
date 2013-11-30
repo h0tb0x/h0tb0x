@@ -25,34 +25,35 @@ func NewNatPMP(gateway net.IP) (nat NAT) {
 	return &natPMPClient{natpmp.NewClient(gateway)}
 }
 
-func (n *natPMPClient) GetExternalAddress() (addr net.IP, err error) {
-	response, err := n.client.GetExternalAddress()
+func (this *natPMPClient) GetExternalAddress() (net.IP, error) {
+	response, err := this.client.GetExternalAddress()
 	if err != nil {
-		return
+		return nil, err
 	}
 	ip := response.ExternalIPAddress
-	addr = net.IPv4(ip[0], ip[1], ip[2], ip[3])
-	return
+	addr := net.IPv4(ip[0], ip[1], ip[2], ip[3])
+	return addr, nil
 }
 
-func (n *natPMPClient) AddPortMapping(protocol string, externalPort, internalPort int,
-	description string, timeout int) (mappedExternalPort int, err error) {
+func (this *natPMPClient) AddPortMapping(
+	proto string,
+	internalPort, externalPort uint16,
+	description string,
+	timeout int) (uint16, error) {
 	if timeout <= 0 {
-		err = fmt.Errorf("timeout must not be <= 0")
-		return
+		return 0, fmt.Errorf("timeout must not be <= 0")
 	}
-	// Note order of port arguments is switched between our AddPortMapping and the client's AddPortMapping.
-	response, err := n.client.AddPortMapping(protocol, internalPort, externalPort, timeout)
+	response, err := this.client.AddPortMapping(
+		proto, int(internalPort), int(externalPort), timeout)
 	if err != nil {
-		return
+		return 0, err
 	}
-	mappedExternalPort = int(response.MappedExternalPort)
-	return
+	return response.MappedExternalPort, nil
 }
 
-func (n *natPMPClient) DeletePortMapping(protocol string, externalPort, internalPort int) (err error) {
+func (this *natPMPClient) DeletePortMapping(proto string, externalPort, internalPort int) error {
 	// To destroy a mapping, send an add-port with
 	// an internalPort of the internal port to destroy, an external port of zero and a time of zero.
-	_, err = n.client.AddPortMapping(protocol, internalPort, 0, 0)
-	return
+	_, err := this.client.AddPortMapping(proto, internalPort, 0, 0)
+	return err
 }

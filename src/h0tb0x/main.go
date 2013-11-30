@@ -28,7 +28,6 @@ import (
 )
 
 const (
-	PortMapLifetime   = 7200 // 2 hours
 	DefaultApiPort    = 8000
 	DefaultLinkPort   = 31337 // Should allow 0 to be automatic
 	DefaultExtHost    = ""    // Automatic
@@ -48,15 +47,6 @@ type Config struct {
 	ExtPort    uint16 // External port (for hand forwarding), 0 means use nat-pmp
 	Rendezvous string // Rendezvous server to use
 }
-
-// Flag variables
-var useUPnP bool
-var useNATPMP bool
-
-// NAT
-//var gateway string
-var portflag int
-var port uint16
 
 func fatal(msg string, err error) {
 	fmt.Fprintf(os.Stderr, msg)
@@ -132,81 +122,6 @@ func newH0tb0x(dir string) {
 	identFile.Close()
 }
 
-// Top function - will call UPnP or NAT-PMP GetExternalAddr function dependent on parameters
-func GetExternalAddrCommon(port uint16) (net.IP, uint16, error) {
-
-	var natobj nat.NAT
-	var listenPort int
-	var external net.IP
-
-	str, err := GetGateway()
-	fmt.Printf("Gateway Address: %q\n", str)
-
-	gatewayIP := net.ParseIP(str)
-	if gatewayIP == nil {
-		return nil, 0, fmt.Errorf("Invalid gateway:  ", gatewayIP)
-	}
-
-	// fmt.Printf("Getting External Address (Common Function)\n")
-
-	// Try NATPMP First
-	if !useUPnP {
-		log.Println("Attempting to use NATPMP to set up port forwarding.")
-		natobj = nat.NewNatPMP(gatewayIP)
-
-		if natobj != nil {
-			external, err = natobj.GetExternalAddress()
-			if err != nil { // Error Returned
-				log.Println("Error:  Unable to get external IP address from router using NATPMP")
-				natobj = nil // If there is an error, nil out natobj so we know to try UPnP instead
-				// return nil, 0, fmt.Errorf("Error - Unable to get external IP address from router using NATPMP")
-			} else {
-				log.Println("Router's external IP address discovered: ", external)
-			}
-		} else { // We don't appear to ever hit this case - natobj is never returned nil from NewNatPMP even if there is an error.
-			log.Println("Unable to discover router capabilities using NATPMP", err)
-		}
-	}
-
-	// If NATPMP failed, or -useUPnP is set, try UPnP
-	if !useNATPMP && natobj == nil {
-		log.Println("Attempting to use UPnP to set up port forwarding.")
-		natobj, err = nat.Discover()
-		if err != nil {
-			log.Println("Unable to discover router capabilities using UPnP", err)
-			//			return nil, 0, fmt.Errorf("Unable to discover router capabilities using UPnP:", err)
-		}
-
-		external, err = natobj.GetExternalAddress()
-		if err != nil { // Error
-			log.Println("Error:  Unable to get external IP address from router using UPnP")
-			// return nil, 0, fmt.Errorf("Error - Unable to get external IP address from router using UPnP")
-		} else {
-			log.Println("Router's external IP address discovered: ", external)
-		}
-	}
-
-	// If IP discovery failed
-	if natobj == nil {
-		listenPort = int(port)
-		log.Println("WARNING:  Router port forwarding setup failed - peers will be unable to connect through firewall.")
-	} else {
-		// Request that the router forward the port
-		if listenPort, err = nat.ChooseListenPort(natobj, port); err != nil {
-			log.Println("Error during router port forwarding request:  ", err)
-			log.Println("Peers will be unable to connect through firewall.")
-		} else {
-			log.Println("Router port forwarding request successful.")
-		}
-	}
-
-	// Convert port value back to uint16
-	port = uint16(listenPort)
-	fmt.Printf("Listening on external port %v\n", listenPort)
-	return external, port, nil
-}
-
-// *** MAIN ***
 func main() {
 	connMgr := conn.NewNetConnMgr()
 	user, err := user.Current()
@@ -218,8 +133,6 @@ func main() {
 
 	rendezvousPort := flag.Int("r", 0, "Set the rendezvous port and run a rendezvous server instead of h0tb0x")
 	dir := flag.String("d", defaultDir, "The directory your h0tb0x stuff lives in")
-	flag.BoolVar(&useUPnP, "useUPnP", false, "Only use UPnP to set up router port forwarding (skip NATPMP detection)")
-	flag.BoolVar(&useNATPMP, "useNATPMP", false, "Only use NATPMP to set up router port forwarding (skip UPnP detection)")
 	flag.Parse()
 
 	if *dir == "" {
@@ -286,7 +199,7 @@ func main() {
 	var extPort uint16
 	if config.ExtHost == "" || config.ExtPort == 0 {
 		// fmt.Printf("Getting External Address\n")
-		extHost, extPort, err = GetExternalAddrCommon(config.LinkPort)
+		extHost, extPort, err = nat.GetExternalAddr(config.LinkPort)
 		if err != nil {
 			panic(err)
 		}
@@ -330,9 +243,9 @@ func main() {
 				case <-tchan:
 					break
 				}
-				extHost, extPort, err = GetExternalAddrCommon(config.LinkPort)
+				extHost, extPort, err = nat.GetExternalAddr(config.LinkPort)
 				if err != nil {
-					log.Printf("GetExternalAddrCommon failed: %v", err)
+					log.Printf("GetExternalAddr failed: %v", err)
 					continue
 				}
 				api.SetExt(extHost, extPort)
