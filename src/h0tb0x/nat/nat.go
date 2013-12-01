@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	ProtoTCP = "tcp"
-	ProtoUDP = "udp"
+	ProtoTCP = "TCP"
+	ProtoUDP = "UDP"
 )
 
 const (
+	// TODO:  Currently UPnP overrides this value, sets to 0 - determine why Netgear routers using UPnP return status 500 if this value is > 0
 	PortMapLifetime = 7200 // 2 hours
 )
 
