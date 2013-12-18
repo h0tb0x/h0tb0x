@@ -67,7 +67,7 @@ func (this *TinyMessage) Encode(stream io.Writer) error {
 
 // Implements the h0tb0x transfer protocol
 func (this *TinyMessage) Decode(stream io.Reader) error {
-	this.impl = make([]byte, 24)
+	this.impl = make([]byte, 16)
 	_, err := io.ReadFull(stream, this.impl)
 	return err
 }
@@ -376,49 +376,55 @@ func NewSymmetricKey() *SymmetricKey {
 	return &SymmetricKey{key: key}
 }
 
-// Encrypts and signs a 64 bit message (with a unique IV to make identical message appear different) into a 192 bit output
-func (this *SymmetricKey) EncodeMessage(msg uint64) (out *TinyMessage) {
+// Encrypts and signs a 32 bit message (with a unique IV to make identical message appear different) into a 128 bit output.
+// Specifically, we have a 128 bit number that is block ciphered, set up as follows (where M1-M4 are our message bytes, 
+// and R1-R6 are random bytes):  R1 R2 R3 R4 R5 R6 M1 M2 M3 M4 R5 R6 M1 M2 M3 M4
+// This means the we have 2^48 bits of entropy and the we can verify that the last 6 bytes match the prior 6 bytes, so
+// we have 2^48 bits of signature as well. 
+func (this *SymmetricKey) EncodeMessage(msg uint32) (out *TinyMessage) {
 	bc, err := aes.NewCipher(this.key)
 	if err != nil {
 		panic(err)
 	}
 	// Make a buffer for our output
-	buf := make([]byte, 24)
-	// Fill the first third with our 'iv'
-	_, err = io.ReadFull(rand.Reader, buf[0:8])
+	buf := make([]byte, 16)
+	// Fill the first 6 bytes with our unique IV
+	// TODO: This could probably be a counter as long as it 
+	// never got reset
+	_, err = io.ReadFull(rand.Reader, buf[0:6])
 	if err != nil {
 		panic(err)
 	}
-	// Fill the second third with our message
-	for i := 0; i < 8; i++ {
-		buf[15-i] = byte(msg & 0xff)
+	// Fill the our message
+	for i := 0; i < 4; i++ {
+		buf[9-i] = byte(msg & 0xff)
 		msg >>= 8
 	}
-	// Copy the iv
-	copy(buf[16:24], buf[0:8])
-	// Block cipher the first 16 bytes
+	// Copy to the final 6 bytes
+	copy(buf[10:16], buf[4:10])
+	// Block cipher everything
 	bc.Encrypt(buf[0:16], buf[0:16])
 	// Return the output
 	return &TinyMessage{impl: buf}
 }
 
 // Decrypts and verifies a tiny message
-func (this *SymmetricKey) DecodeMessage(in *TinyMessage) (msg uint64, valid bool) {
+func (this *SymmetricKey) DecodeMessage(in *TinyMessage) (msg uint32, valid bool) {
 	bc, err := aes.NewCipher(this.key)
 	if err != nil {
 		panic(err)
 	}
 	// Make a place to decrypt to
 	buf := make([]byte, 16)
-	// Decrypt lower 16 bytes
+	// Decrypt the block 
 	bc.Decrypt(buf, in.impl[0:16])
 	// Check 'signature'
-	valid = bytes.Equal(buf[0:8], in.impl[16:24])
+	valid = bytes.Equal(buf[4:10], buf[10:16])
 	// if valid, decode the message
 	if valid {
-		for i := 0; i < 8; i++ {
+		for i := 0; i < 4; i++ {
 			msg <<= 8
-			msg |= uint64(buf[i+8])
+			msg |= uint32(buf[i+6])
 		}
 	}
 	return

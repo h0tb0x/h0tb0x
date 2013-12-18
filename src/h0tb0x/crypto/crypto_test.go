@@ -117,7 +117,7 @@ func TestIdent(t *testing.T) {
 func TestTinyMessage(t *testing.T) {
 	sk1 := NewSymmetricKey()
 	sk2 := NewSymmetricKey()
-	m1 := uint64(123456)
+	m1 := uint32(123456)
 	e1 := sk1.EncodeMessage(m1)
 	e2 := sk1.EncodeMessage(m1)
 	t.Logf("e1 = %s", e1.String())
