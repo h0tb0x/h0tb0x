@@ -56,15 +56,24 @@ func (this *Signature) Encode(stream io.Writer) error { return transfer.Encode(s
 // Implements the h0tb0x transfer protocol
 func (this *Signature) Decode(stream io.Reader) error { return transfer.Decode(stream, &this.impl) }
 
-// SKSignature represents the signature of some data signed by a Symmetric Key.
-// It supports h0tb0x.transfer.
-type SKSignature struct{ impl []byte }
+// Implements a tiny symetric key 'encypted + signed' 64 bit number
+type TinyMessage struct{ impl []byte }
 
 // Implements the h0tb0x transfer protocol
-func (this *SKSignature) Encode(stream io.Writer) error { return transfer.Encode(stream, this.impl) }
+func (this *TinyMessage) Encode(stream io.Writer) error {
+	_, err := stream.Write(this.impl)
+	return err
+}
 
 // Implements the h0tb0x transfer protocol
-func (this *SKSignature) Decode(stream io.Reader) error { return transfer.Decode(stream, &this.impl) }
+func (this *TinyMessage) Decode(stream io.Reader) error {
+	this.impl = make([]byte, 24)
+	_, err := io.ReadFull(stream, this.impl)
+	return err
+}
+
+// Converts to a string
+func (this *TinyMessage) String() string { return transfer.AsString(this) }
 
 // EncryptedKey represents a Symmetric key encrypted to a Identity.
 // It supports h0tb0x.transfer.
@@ -94,15 +103,6 @@ type Hasher interface {
 	Finalize() (hash *Digest)
 }
 
-// Crypter represents an object which processes bytes to encrypt or decrypt them
-type Crypter interface {
-	// Process takes some bytes in and returns some bytes out, however the number of bytes
-	// in may not match the number out in general, due to issues such as block size
-	Process(in []byte) (out []byte)
-	// Finalize gets any final output bytes
-	Finalize() (out []byte)
-}
-
 // PublicIdentity represents the public part of an identity
 type PublicIdentity struct {
 	key *rsa.PublicKey
@@ -120,10 +120,6 @@ type SecretIdentity struct {
 // Currently, no methods, but someday it will include Encrypt, Decrypt, Sign, and Verify
 type SymmetricKey struct {
 	key []byte
-	//Encrypt() (io Crypter)  // IV is placed in cypter stream as first bytes
-	//Decrypt() (io Crypter)  // Expects IV as first byte
-	//Sign(hash *Digest) (signature *SKSignature)
-	//Verify(hash *Digest, signature *SKSignature) (valid bool)
 }
 
 type implHasher struct {
@@ -378,6 +374,54 @@ func NewSymmetricKey() *SymmetricKey {
 		panic(err)
 	}
 	return &SymmetricKey{key: key}
+}
+
+// Encrypts and signs a 64 bit message (with a unique IV to make identical message appear different) into a 192 bit output
+func (this *SymmetricKey) EncodeMessage(msg uint64) (out *TinyMessage) {
+	bc, err := aes.NewCipher(this.key)
+	if err != nil {
+		panic(err)
+	}
+	// Make a buffer for our output
+	buf := make([]byte, 24)
+	// Fill the first third with our 'iv'
+	_, err = io.ReadFull(rand.Reader, buf[0:8])
+	if err != nil {
+		panic(err)
+	}
+	// Fill the second third with our message
+	for i := 0; i < 8; i++ {
+		buf[15-i] = byte(msg & 0xff)
+		msg >>= 8
+	}
+	// Copy the iv
+	copy(buf[16:24], buf[0:8])
+	// Block cipher the first 16 bytes
+	bc.Encrypt(buf[0:16], buf[0:16])
+	// Return the output
+	return &TinyMessage{impl: buf}
+}
+
+// Decrypts and verifies a tiny message
+func (this *SymmetricKey) DecodeMessage(in *TinyMessage) (msg uint64, valid bool) {
+	bc, err := aes.NewCipher(this.key)
+	if err != nil {
+		panic(err)
+	}
+	// Make a place to decrypt to
+	buf := make([]byte, 16)
+	// Decrypt lower 16 bytes
+	bc.Decrypt(buf, in.impl[0:16])
+	// Check 'signature'
+	valid = bytes.Equal(buf[0:8], in.impl[16:24])
+	// if valid, decode the message
+	if valid {
+		for i := 0; i < 8; i++ {
+			msg <<= 8
+			msg |= uint64(buf[i+8])
+		}
+	}
+	return
 }
 
 // Simplified hashing for things which serialize via transfer.Encode, panics on error.
