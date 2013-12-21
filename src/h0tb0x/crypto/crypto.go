@@ -377,10 +377,10 @@ func NewSymmetricKey() *SymmetricKey {
 }
 
 // Encrypts and signs a 32 bit message (with a unique IV to make identical message appear different) into a 128 bit output.
-// Specifically, we have a 128 bit number that is block ciphered, set up as follows (where M1-M4 are our message bytes, 
+// Specifically, we have a 128 bit number that is block ciphered, set up as follows (where M1-M4 are our message bytes,
 // and R1-R6 are random bytes):  R1 R2 R3 R4 R5 R6 M1 M2 M3 M4 R5 R6 M1 M2 M3 M4
 // This means the we have 2^48 bits of entropy and the we can verify that the last 6 bytes match the prior 6 bytes, so
-// we have 2^48 bits of signature as well. 
+// we have 2^48 bits of signature as well.
 func (this *SymmetricKey) EncodeMessage(msg uint32) (out *TinyMessage) {
 	bc, err := aes.NewCipher(this.key)
 	if err != nil {
@@ -389,7 +389,7 @@ func (this *SymmetricKey) EncodeMessage(msg uint32) (out *TinyMessage) {
 	// Make a buffer for our output
 	buf := make([]byte, 16)
 	// Fill the first 6 bytes with our unique IV
-	// TODO: This could probably be a counter as long as it 
+	// TODO: This could probably be a counter as long as it
 	// never got reset
 	_, err = io.ReadFull(rand.Reader, buf[0:6])
 	if err != nil {
@@ -416,7 +416,7 @@ func (this *SymmetricKey) DecodeMessage(in *TinyMessage) (msg uint32, valid bool
 	}
 	// Make a place to decrypt to
 	buf := make([]byte, 16)
-	// Decrypt the block 
+	// Decrypt the block
 	bc.Decrypt(buf, in.impl[0:16])
 	// Check 'signature'
 	valid = bytes.Equal(buf[4:10], buf[10:16])
