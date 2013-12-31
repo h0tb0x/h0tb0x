@@ -1,0 +1,971 @@
+<html>
+<head>
+<title>H0tb0x - Share content</title>
+<!--
+by Javantea
+Nov 10, 2013
+-->
+<style>
+<!--
+body
+{
+	padding: 0px;
+	margin:0px;
+}
+#main {
+	margin:0px;
+	height:100%;
+	padding:0px;
+	font-family:"DejaVu Sans", Helvetica, Verdana, sans-serif;
+}
+#head {
+	background-color:#ccc;
+	border-bottom:1px solid black;
+	margin:0px;
+	padding:5px;
+}
+.software
+{
+	margin-left:10px;
+	font-weight:bold;
+	font-family:"DejaVu Sans Mono", monospace;
+	color:#640;
+}
+#searchbox
+{
+	margin-left:50px;
+	width:50%;
+	border:1px solid #999;
+	padding:6px 4px 6px 4px;
+}
+.searchbutton
+{
+	margin:0px;
+	padding:4px 25px 4px 25px;
+	border:1px solid #999;
+	border-left:none;
+	background-color:#ffcc99;
+	position:relative;
+	top:1px;
+}
+#left
+{
+	width:100px;
+	border:1px solid #999;
+	background-color:#ccc;
+	float:left;
+	padding:5px;
+}
+#left a
+{
+	color:#339;
+	text-decoration:none;
+}
+#me
+{
+	border:1px solid #999;
+	background-color:#ccc;
+	padding:4px;
+	color:#333;
+	text-decoration:none;
+	margin-left:25px;
+}
+#mextended
+{
+	border:1px solid #999;
+	background-color:#ccc;
+	padding:4px;
+	color:#333;
+	text-decoration:none;
+}
+#center
+{
+	position:absolute;
+	left:200px;
+	width:70%;
+}
+#main div.b
+{
+	border:1px solid #333;
+	margin:10px;
+	padding:10px;
+}
+#AddFriendBox form dl dt
+{
+	float:left;
+	width:100px;
+	text-align:right;
+	padding:2px;
+}
+#AddContentBox form dl dt
+{
+	float:left;
+	width:100px;
+	text-align:right;
+	padding:2px;
+}
+.f dl dt, .s dl dt
+{
+	float:left;
+	width:100px;
+	text-align:right;
+	padding:2px;
+}
+.f canvas, .s canvas
+{
+	float:left;
+	border:1px solid #666;
+	margin:10px;
+}
+
+.se
+{
+	color:#36f;
+}
+
+.f a
+{
+	color:#00c;
+}
+
+.delete
+{
+	float:right;
+}
+.delete, .delete2
+{
+	text-decoration:none;
+	color:#000;
+}
+.delete2
+{
+	display:inline;
+	margin-left:10px;
+}
+.refresh2
+{
+	display:inline;
+	margin-left:10px;
+}
+
+-->
+</style>
+<script type="text/javascript" src="/lib/jquery-1/jquery-1.10.2.min.js"></script>
+<script type="text/javascript">
+<!--
+
+var timer1 = null;
+var blinker = null;
+var currColor = 0x664400;
+var minColor  = 0x332200;
+
+var h0tb0x = {};
+h0tb0x.ourself = null;
+h0tb0x.friends = [];
+h0tb0x.collections = [];
+h0tb0x.data = {};
+h0tb0x.waiting = [];
+
+function sanitize(s)
+{
+	if(s == undefined) return "";
+	return s.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+function unsanitize(s)
+{
+	return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+}
+
+function drawFriend(friend)
+{
+		var afid = friend.id.replace(/=/g, '');
+		var prev = $("#friend_" + afid);
+		if(prev.length != 0)
+		{
+			prev.remove();
+		}
+		var x = "";
+		if(friend.profileCid)
+		{
+			var pCid = friend.profileCid;
+			x = "<dt>Public Collection:</dt><dd><a href=\"#\" onclick=\"drawCollection(getCollectionById('" + sanitize(pCid) + "')); return false;\">" + sanitize(pCid) + "</a></dd><br />\n";
+		}
+		addToBody("<div id=\"friend_" + afid + "\" class=\"f b\">" +
+		"<canvas id=\"friend_" + afid + "_randart\" height=\"64\" width=\"64\"></canvas>" + 
+		"<a href=\"#\" class=\"delete\" onclick=\"deleteFriend('" + sanitize(friend.id) + "'); return false;\">x</a>" + 
+		"<dl><dt>Name:</dt><dd>" + sanitize(friend.name) + "</dd><br />\n" + 
+		"<dt>Fingerprint:</dt><dd>" + sanitize(friend.id) + "</dd><br />\n" + 
+		"<dt>Host:</dt><dd>" + sanitize(friend.host + ":" + friend.port) + "</dd><br />\n" + 
+		x +
+		"</dl></div>\n");
+		drawRandArt($("#friend_" + afid + "_randart"), friend.passport);
+}
+
+function searchX()
+{
+	var sb = $("#searchbox");
+	// TODO: Search friends and collections.
+	var sv = sb[0].value;
+	var results = [];
+	var fi;
+	for(fi = 0; fi < h0tb0x.friends.length; fi++)
+	{
+		var friend = h0tb0x.friends[fi];
+		if(friend.name.indexOf(sv) >= 0 || friend.id.indexOf(sv) >= 0)
+		{
+			if(friend.profileCid)
+			{
+				//getFriendProfile(friend);
+			}
+			drawFriend(friend);
+			results.push(friend);
+		}
+	}
+	for(var i = 0; i < h0tb0x.collections.length; i++)
+	{
+		var collection = h0tb0x.collections[i];
+		if(collection.id.indexOf(sv) >= 0 || collection.name.indexOf(sv) >= 0)
+		{
+			drawCollection(collection);
+			results.push(collection);
+			continue;
+		}
+		for(ci = 0; ci < collection.data.length; ci++)
+		{
+			var cd = collection.data[ci];
+			if(cd.key.indexOf(sv) >= 0)
+			{
+				drawCollection(collection);
+				results.push(collection);
+				break;
+			}
+		}
+	}
+	if(results.length == 0)
+	{
+		addToBody("<div class=\"b\">No search results.</div>");
+	}
+	return false;
+}
+
+function UnsettledFriends()
+{
+	var fi;
+	for(fi = 0; fi < h0tb0x.friends.length; fi++)
+	{
+		var friend = h0tb0x.friends[fi];
+		if(friend.publicKey == "")
+		{
+			drawFriend(h0tb0x.friends[fi]);
+		}
+	}
+	return false;
+}
+
+function AllFriends()
+{
+	var fi;
+	for(fi = 0; fi < h0tb0x.friends.length; fi++)
+	{
+		drawFriend(h0tb0x.friends[fi]);
+	}
+	return false;
+}
+
+function getFriendById(id)
+{
+	if(id == h0tb0x.ourself.id)
+	{
+		return h0tb0x.ourself;
+	}
+	var fi;
+	for(fi = 0; fi < h0tb0x.friends.length; fi++)
+	{
+		if(h0tb0x.friends[fi].id == id)
+		{
+			return h0tb0x.friends[fi];
+		}
+	}
+	return null;
+}
+
+function getCollectionById(id)
+{
+	for(var i = 0; i < h0tb0x.collections.length; i++)
+	{
+		if(h0tb0x.collections[i].id == id)
+		{
+			return h0tb0x.collections[i];
+		}
+	}
+	return null;
+}
+
+function AllCollections()
+{
+	var ci;
+	for(ci = 0; ci < h0tb0x.collections.length; ci++)
+	{
+		drawCollection(h0tb0x.collections[ci]);
+	}
+	return false;
+}
+
+function drawCollection(collection)
+{
+	var cid = collection.id;
+	var acid = cid.replace(/=/g,'');
+	var prev = $("#collection_" + acid);
+	if(prev.length != 0)
+	{
+		prev.remove();
+	}
+	// FIXME: Colections without names are kinda junk.
+	// TODO: Owner needs a name, check for it.
+		//"<dl><dt>Name:</dt><dd>" + collection.name + "</dd><br />\n" + 
+	var friendOwner = getFriendById(collection.owner);
+	var ownerName = sanitize(collection.owner);
+	if(friendOwner)
+	{
+		ownerName = sanitize(friendOwner.name);
+		if(friendOwner == h0tb0x.ourself)
+		{
+			ownerName = "<span class=\"se\">" + ownerName + " (self)</span>";
+		}
+	}
+	addToBody("<div id=\"collection_" + acid + "\" class=\"f b\">" +
+		"<canvas id=\"collection_" + acid + "_randart\" height=\"64\" width=\"64\"></canvas>" + 
+		"<dl><dt>Collection:</dt><dd>" + sanitize(cid) + "<a href=\"#\" class=\"refresh2\" onclick=\"getCollectionData(this.innerHTML);return false;\">refresh</a></dd><br />\n" + 
+		"<dt>Owner:</dt><dd>" + ownerName + "</dd><br />\n" + 
+		"</dl></div>\n");
+	drawRandArt($("#collection_" + acid + "_randart"), cid);
+	drawCollectionData(cid);
+}
+
+function drawCollectionData(cid)
+{
+	var collection = getCollectionById(cid);
+	if(!collection) return;
+	var ci;
+	var acid = cid.replace(/=/g,'');
+	var prev = $("#collection_" + acid);
+	if(prev.length == 0)
+	{
+		// Some sort of an issue. *shrug*
+		//alert("Missing " + "#collection_" + acid);
+		return;
+	}
+	var items = "";
+	for(ci = 0; ci < collection.data.length; ci++)
+	{
+		var cd = collection.data[ci];
+		items += "<dt>&nbsp;</dt><dd><a href=\"#\" onclick=\"showCollectionDataValue('" + sanitize(cid) + "', this.innerHTML);return false;\">" + sanitize(cd.key) + "</a>" +
+		"<a href=\"#\" class=\"delete2\" onclick=\"deleteData('" + sanitize(cid) + "', '" + sanitize(cd.key) + "'); return false;\">x</a>" + 
+		"</dd><br />\n";
+	}
+	var add_dl = $("<dl>");
+	add_dl.html(items);
+	var prev_dl = $("#collection_" + acid + " dl");
+	if(prev_dl.length == 0)
+	{
+		alert("Missing " + "#collection_" + acid + " dl");
+		return;
+	}
+	prev_dl.after(add_dl);
+	return false;
+}
+
+// Given the cid and key, determine whether we have it.
+function findKey(cid, keyx)
+{
+	var collection = getCollectionById(cid);
+	if(!collection) return null;
+	var ci;
+	for(ci = 0; ci < collection.data.length; ci++)
+	{
+		var cd = collection.data[ci];
+		if(cd.key == keyx) return cd;
+	}
+	return null;
+}
+
+function showCollectionDataValue(cid, keyx)
+{
+	h0tb0x.waiting.push({cid:cid, name:keyx});
+	getCollectionDataValue(cid, keyx);
+	// This is event-driven, be patient.
+}
+
+function checkForData()
+{
+	output = "";
+	for(var i = 0; i < h0tb0x.waiting.length; i++)
+	{
+		var x = h0tb0x.waiting[i];
+		var v = h0tb0x.data[x.cid + "_" + x.name];
+		if(v)
+		{
+			if(v.type == "image")
+			{
+				output += "<div class=\"b\"><img src=\"" + v.url + "\" alt=\"" + sanitize(v.name) + "\" /></div>";
+			}
+			else
+			{
+				var vdata = v.data;
+				if(!(typeof(vdata) === "string"))
+				{
+					vdata = vdata.toSource();
+				}
+				output += "<div class=\"b\"><b>" + v.name + ": </b>" + sanitize(vdata) + "</div>";
+			}
+			h0tb0x.waiting.pop(i);
+		}
+	}
+	if(output)
+	{
+		addToBody(output);
+	}
+}
+
+function searchboxKeyUp(e)
+{
+	//if(window.event) event = window.event;
+	if(e.keyCode == 13)
+	{
+		searchX();
+	}
+}
+
+function getSeed(x)
+{
+	var output = 0;
+	for(var i = 0; i < x.length; i++)
+	{
+		output += x.charCodeAt(i);
+	}
+	return output & 0xffff;
+}
+
+var seed = 314159;
+function SeedableRandom()
+{
+	var v = seed;
+	v *= 51239;
+	v += 37;
+	v &= 0xffff;
+	seed = v;
+	v = v / 0xffff;
+	return v;
+}
+
+// Test this in Firebug.
+//function SeedableRandom() { var v = seed; v *= 51239; v += 37; v &= 0xffff; seed = v; v = v / 0xffff; return v; }
+
+function drawProfile(pseed)
+{
+	drawRandArt($("#profile_mini"), pseed);
+}
+
+function drawRandArt(canv, pseed)
+{
+	var ctx = canv[0].getContext("2d");
+	var width  = canv.width();
+	var height = canv.height();
+	
+	var x, y;
+	seed = getSeed(pseed);
+	
+	var paths = [];
+	for(i = 0; i < 10; i++)
+	{
+		x = Math.floor(SeedableRandom() * width);
+		y = Math.floor(SeedableRandom() * height);
+		paths.push([x, y]);
+	}
+	ctx.fillStyle = "#fff";
+	ctx.fillRect(0, 0, width, height);
+	/*ctx.beginPath();
+	for(p in paths)
+	{
+		ctx.moveTo(paths[p][0], paths[p][1]);
+		ctx.lineTo(paths[p][0], paths[p][1]+1);
+	}
+	ctx.stroke();*/
+	ctx.fillStyle = "#000";
+	var v = 13;
+	for(p in paths)
+	{
+		if(v % 2 == 0)
+		{
+			x = 5 * width  / 16;
+			y = 3 * height / 16;
+		}
+		else
+		{
+			x = 3 * width  / 16;
+			y = 5 * height / 16;
+		}
+		v *= 51239;
+		v += 39;
+		ctx.fillRect(paths[p][0], paths[p][1], x, y);
+	}
+}
+
+function attachMouseOver()
+{
+	var ame = $("#me");
+	ame.mouseover(function() { timer1 = window.setTimeout(dropdown, 1000); });
+	ame.mouseout(function() { window.clearTimeout(timer1); });
+	ame.click(dropdown);
+}
+
+function dropdown()
+{
+	window.clearTimeout(timer1);
+	var ame = $("#me");
+	var amextended = $("#mextended");
+	var ame_pos = ame.offset();
+	//alert(ame_pos.left + " " + ame_pos.top + " " + ame.height());
+	//amextended.css("position", "absolute");
+	amextended.offset({ top: ame_pos.top + ame.height() + 9, left: ame_pos.left });
+	//alert(ame_pos.left);
+	amextended.show();
+	//amextended.html(amextended.html() + "blah");
+	//amextended.innerHTML = "Hi there: " + ame.offsetLeft + "px, " + (ame.offsetTop + ame.offsetHeight - 1) + "px";
+	var x = "";
+	if(h0tb0x.ourself.name)
+	{
+		x += "<dt>Name:</dt><dd>" + sanitize(h0tb0x.ourself.name) + "</dd><br />\n";
+	}
+	if(h0tb0x.ourself.profile)
+	{
+		var pCid = h0tb0x.ourself.profile.publicCid;
+		x += "<dt>Public Collection:</dt><dd><a href=\"#\" onclick=\"drawCollection(getCollectionById('" + sanitize(pCid) + "')); return false;\">" + sanitize(pCid) + "</a></dd><br />\n";
+		if(h0tb0x.data[pCid + "_picture"])
+		{
+			var pic = h0tb0x.data[pCid + "_picture"];
+			x += "<div><img src=\"" + pic.url + "\" alt=\"" + sanitize(pic.name) + "\" /></div>";
+		}
+	}
+	x += "<dt>Passport:</dt><dd>" + sanitize(h0tb0x.ourself.passport) + "</dd>";
+	amextended.html("<dl>" + x + "</dl><br />");
+}
+
+// Make the logo glow with heat. A complete waste of resources. Configurable by the user.
+function blinkLogo()
+{
+	if(self.location.href.indexOf("no") >= 0) return;
+	blinker = window.setInterval(function(){
+		var amount_fire = 30;
+		var r = Math.floor(Math.random() * amount_fire) - (amount_fire * 0.5);
+		currColor += r * 0x030100;
+		if (currColor > 0xff8800)
+		{
+			currColor = minColor;
+		}
+		if (currColor < minColor)
+		{
+			currColor = minColor;
+		}
+		var hblogo = $("#h0tb0xLogo");
+		hblogo.css("color", "#" + (currColor.toString(16)));
+	}, 1000
+	);
+}
+
+function mextBody()
+{
+	$("#mextended").hide();
+	var dmb = $("#dmext_body");
+	if(dmb.length > 0)
+	{
+		dmb.remove();
+	}
+	// Add the dmext_body to the body.
+	addToBody("<div id=\"dmext_body\" class=\"s b\"><canvas id=\"self_randart\" height=\"64\" width=\"64\"></canvas>Self<br />" + $("#mextended").html() + "</div>\n");
+	drawRandArt($("#self_randart"), h0tb0x.ourself.passport);
+}
+
+function addToBody(addee)
+{
+	var x = $("<div>");
+	x.html(addee);
+	$("#top").after(x);
+}
+
+// This function retrieves friends from the server.
+function getFriends()
+{
+	var x = $.getJSON("http://localhost:8000/api/friends", function(data) {
+	})
+		.done(function(data) {
+		h0tb0x.friends = data;
+		var fi;
+		for(fi = 0; fi < h0tb0x.friends.length; fi++)
+		{
+			var friend = h0tb0x.friends[fi];
+			// TODO: Resolve all names from profiles.
+			friend.name = "Anonymous";
+			getProfile(friend.selfCid);
+		}
+	})
+		.fail(function(data) {
+		h0tb0x.friends = "Unable to get /api/friends";
+	});
+}
+
+// This function retrieves collections from the server.
+function getCollections()
+{
+	var x = $.getJSON("http://localhost:8000/api/collections", function(data) {
+	})
+		.done(function(data) {
+		h0tb0x.collections = data;
+		var fi;
+		for(fi = 0; fi < h0tb0x.collections.length; fi++)
+		{
+			var coll = h0tb0x.collections[fi];
+			// TODO: Resolve all names from profiles.
+			coll.name = "Unknown";
+			getCollectionData(coll.id);
+		}
+	})
+		.fail(function(data) {
+		h0tb0x.collections = "Unable to get /api/collections";
+	});
+}
+
+// This function retrieves a profile from the server.
+// You need to know the collection, which comes from the friend.profileCid
+function getProfile(cid)
+{
+	getCollectionDataValue(cid, "profile");
+	/*var x = $.getJSON("http://localhost:8000/api/collections/" + escape(cid) + "/data/profile", function(data) {
+	})
+		.done(function(data) {
+		h0tb0x.data[cid + "_profile"] = data;
+	})
+		.fail(function(data) {
+		// TODO: Whatever error message here.
+	});*/
+}
+
+function getSelfProfile()
+{
+	if(h0tb0x.ourself.state == 2) return;
+	if(h0tb0x.data[h0tb0x.ourself.selfCid + "_profile"])
+	{
+		h0tb0x.ourself.profile = h0tb0x.data[h0tb0x.ourself.selfCid + "_profile"].data;
+		var publicCid = h0tb0x.ourself.profile.publicCid;
+		if(h0tb0x.data[publicCid + "_profile"])
+		{
+			h0tb0x.ourself.state = 2;
+			h0tb0x.ourself.name = h0tb0x.data[publicCid + "_profile"].data.name;
+			$("#me_name").html(sanitize(h0tb0x.ourself.name));
+			return;
+		}
+		if(h0tb0x.ourself.state == 0)
+		{
+			getProfile(publicCid);
+			getCollectionDataValue(publicCid, "picture");
+			h0tb0x.ourself.state = 1;
+		}
+		else
+		{
+			// TODO: Give up after a few tries.
+			return;
+		}
+	}
+	window.setTimeout(getSelfProfile, 100);
+}
+
+// This function retrieves a list of data contained in a collection.
+// You need to know the collection, which comes from collections
+function getCollectionData(cid)
+{
+	var x = $.getJSON("http://localhost:8000/api/collections/" + escape(cid) + "/data", function(data) {
+	})
+		.done(function(data) {
+		var coll = getCollectionById(cid);
+		if(coll)
+		{
+			coll.data = data;
+			drawCollectionData(cid);
+		}
+	})
+		.fail(function(data) {
+		// TODO: Whatever error message here.
+	});
+}
+
+// This function retrieves a profile from the server.
+// You need to know the collection, which comes from the friend.profileCid
+function getCollectionDataValue(cid, keyx)
+{
+	if(keyx == "picture" || keyx.endsWith(".jpg"))
+	{
+		var url = "http://localhost:8000/api/collections/" + escape(cid) + "/data/" + escape(unsanitize(keyx));
+		h0tb0x.data[cid + "_" + keyx] = {type:"image", url:url, name:keyx};
+		checkForData();
+		return;
+	}
+	var x = $.ajax({url:"http://localhost:8000/api/collections/" + escape(cid) + "/data/" + escape(unsanitize(keyx))})
+		.done(function(data) {
+			var dx;
+			try {
+				dx = $.parseJSON(data);
+			}
+			catch(Exception)
+			{
+				dx = data;
+			}
+		h0tb0x.data[cid + "_" + keyx] = {type:"data", data:dx, name:keyx};
+		checkForData();
+	})
+		.fail(function(data) {
+		// TODO: Whatever error message here.
+	});
+}
+
+// This function requests collection data from the server.
+// You need to know the collection.
+function putCollectionDataValue(cid, keyx, data)
+{
+	// keyx must be sanitized. This is uncommon.
+	if(keyx == "picture" || keyx.endsWith(".jpg"))
+	{
+		var url = "http://localhost:8000/api/collections/" + escape(cid) + "/data/" + escape(unsanitize(keyx));
+		h0tb0x.data[cid + "_" + keyx] = {type:"image", url:url, name:keyx};
+		checkForData();
+		return;
+	}
+	var x = $.ajax({url:"http://localhost:8000/api/collections/" + escape(cid) + "/data/" + escape(unsanitize(keyx))})
+		.done(function(data) {
+			var dx;
+			try {
+				dx = $.parseJSON(data);
+			}
+			catch(Exception)
+			{
+				dx = data;
+			}
+		h0tb0x.data[cid + "_" + keyx] = {type:"data", data:dx, name:keyx};
+		checkForData();
+	})
+		.fail(function(data) {
+		// TODO: Whatever error message here.
+	});
+}
+
+function addFriend()
+{
+	$("#AddFriendBox").show();
+}
+
+function inviteFriend(f)
+{
+	// FIXME: Proper javascript encoding dear me.
+	var x = $.ajax({url:"http://localhost:8000/api/friends", 
+		type:"POST",
+		dataType:"json",
+		contentType:"application/json",
+		data: "{\"passport\":\"" + f.passport.value.replace(/"/g, '\\"') + "\"}\n"
+	})
+		.done(function(data) {
+		//alert("Invite friend done: " + data);
+		getFriends();
+		addToBody("<div class=\"b\">Friend successfully added. <a href=\"#\" onclick=\"addFriend();return false;\">Add another.</a></div>");
+		$('#AddFriendBox').hide();
+	})
+		.fail(function(data) {
+		$("#AddFriendPassport").css("border","1px solid red");
+		$("#AddFriendError").html("Add friend failed. Make sure the correct passport was used.");
+		$("#AddFriendError").show();
+	});
+}
+
+function deleteFriend(f)
+{
+	if(!confirm("Are you sure you want to delete this friend?")) return;
+	var x = $.ajax({url:"http://localhost:8000/api/friends/" + escape(f), 
+		type:"DELETE"
+	})
+		.done(function(data) {
+		getFriends();
+		addToBody("<div class=\"b\">Friend successfully deleted.</div>");
+		var afid = f.replace(/=/g, '');
+		var prev = $("#friend_" + afid);
+		if(prev.length != 0)
+		{
+			prev.remove();
+		}
+	})
+		.fail(function(data) {
+		addToBody("<div style=\"border:1px solid red;\">Delete friend failed. Try refreshing.</div>");
+	});
+}
+
+function addContent()
+{
+	$("#AddContentBox").show();
+}
+
+// This function saves the current post to a collection.
+function saveData(f)
+{
+	var cid = null;
+	if(f.collection.options[f.collection.selectedIndex].value == "profile")
+	{
+		cid = h0tb0x.ourself.profileCid;
+	}
+	if(f.collection.options[f.collection.selectedIndex].value == "public")
+	{
+		if(h0tb0x.ourself.profile == null)
+		{
+			alert("No public cid. Debug.");
+			return;
+		}
+		cid = h0tb0x.ourself.profile.publicCid;
+	}
+	else
+	{
+		cid = f.collection.options[f.collection.selectedIndex].value;
+	}
+	var coll = getCollectionById(cid);
+	if(coll && findKey(cid, f.key.value))
+	{
+		// Don't allow them to overwrite without confirmation.
+		if(!confirm("Are you sure you want to overwrite " + f.key.value + "?")) return;
+	}
+	var x = $.ajax({url:"http://localhost:8000/api/collections/" + escape(cid) + "/data/" + escape(f.key.value), 
+		type:"PUT",
+		contentType:"application/json",
+		data: "{\"body\":\"" + f.body.value.replace(/"/g, '\\"') + "\"}\n"
+	})
+		.done(function(data) {
+		//alert("Invite friend done: " + data);
+		addToBody("<div class=\"b\">Content successfully added. " + data.toString() + " <a href=\"#\" onclick=\"addContent();return false;\">Post another.</a></div>");
+		$('#AddContentBox').hide();
+	})
+		.fail(function(data) {
+		//$("#AddFriendPassport").css("border","1px solid red");
+		$("#AddContentError").html("Add content failed. Make sure the correct key was used.");
+		$("#AddContentError").show();
+	});
+}
+
+function deleteData(cid, key)
+{
+	// TODO: 501 not implemented.
+	if(!confirm("Are you sure you want to delete this data?" + cid + "_" + key)) return;
+	var x = $.ajax({url:"http://localhost:8000/api/collections/" + escape(cid) + "/data/" + escape(key), 
+		type:"DELETE"
+	})
+		.done(function(data) {
+		addToBody("<div class=\"b\">Data successfully deleted.</div>");
+	})
+		.fail(function(data) {
+		addToBody("<div style=\"border:1px solid red;\">Delete data failed. Try refreshing.</div>");
+	});
+}
+
+function refreshAll()
+{
+	getProfile(h0tb0x.ourself.selfCid);
+	window.setTimeout(getSelfProfile, 100);
+	getSelfProfile();
+	getCollections();
+	getFriends();
+}
+
+// When we start, we want all data available to us asynchronously.
+function startup()
+{
+	//({id:"Zcp3Z_H2yO51g2IpkC7U3rt8YFvtaP236Q12Cw==", rendezvous:"localhost:2134", publicKey:"pgIwggEBIjANBgkqhgFIhgH3AQ0BAQEFAAOCAQEPADCCAQEKAoIBAQEAugF83QE2pgEHuwGvAZQBjgFZ3AH9AY0BQkBNUfcBKc8B_QG7AfgBkAFZzQHIAYQBkwFKUJMBdSnJAagB0gF8csUBaRmtASpVTlcelwH6AeYBPLUB5gG7AYUBygGpAcQBiQFrS80BvgHkAVNOdN0BAD3VAfABwwFUY_EBJC3sAU7LASpU9QFIoAGcARj0AToqIVtdPeEB6AFaJa0BFDhMCFNVmwGNAdgBC7MBygHGAUlnByzvAbsBE-4B_gFxDsgBaGoUUmsI7gEWHxS1AaEBefIByAEXIwL_AckBPU-IARy3ATNurQGYAVqJAfQBMocB1QG6AdoB1wGSAWYODI0BjgGDAbcBSRkw-wFXpQE6YPgB1wG7AcIBwQGVAYwB4gF6pgG4AcYBKxl2bS4mzAHmAVEWN5oBNIUB-QFNe_ABlwFr9QH1AWdIM8kB4AE46wHNAZQBZO8ByQFw2AF0VrcBR_oB6QHcAZQBvgGSASszgwFySckBvQEadTwekQEoEy9eBQIDAQAB", passport:"Zcp3Z_H2yO51g2IpkC7U3rt8YFvtaP236Q12Cw5sb2NhbGhvc3Q6MjEzNA==", host:"127.0.0.1", port:6882, selfCid:"VJHWAiIDQV4n9yfoU4z3KnZPmU9EkcQPVmo_gw==", profileCid:"WzHkL_fu8TPaSYWhar7UtHL6nrVOuooRopx_wQ=="})
+	var x = $.getJSON("http://localhost:8000/api/self", function(data) {})
+		.done(function(data) {
+		h0tb0x.ourself = data;
+		// TODO: Get Profile.
+		h0tb0x.ourself.profile = null;
+		h0tb0x.ourself.state = 0;
+		getProfile(h0tb0x.ourself.selfCid);
+		window.setTimeout(getSelfProfile, 100);
+		// Our profile image is seeded by passport.
+		drawProfile(data.passport);
+		getCollections();
+	})
+		.fail(function(data) {
+		h0tb0x.ourself = "Unable to get /api/self";
+	});
+	attachMouseOver();
+	blinkLogo();
+	getFriends();
+}
+
+$(document).ready(startup);
+
+//-->
+</script>
+</head>
+<body>
+<div id="main">
+<div id="head"><span class="software" id="h0tb0xLogo">h0tb0x</span>
+	<a href="#" onclick="addContent(); return false;" style="position:absolute;"><img src="/images/compose1a.png" alt="compose" width="30" height="30" /></a>
+	<input type="text" id="searchbox" placeholder="Search" onkeyup="searchboxKeyUp(event);" /><a href="#" onclick="return searchX();" class="searchbutton"><img src="/images/search1a.png" alt="Search" /></a>
+<a href="#" id="me"><span id="me_name">&nbsp;</span> <canvas id="profile_mini" width="16" height="16" alt="Profile"></canvas></a>
+</div><!-- head -->
+
+<div id="left">
+<a href="#" onclick="addContent(); return false;">Add Content</a><br />
+<a href="#" onclick="addFriend(); return false;">Add Friend</a><br />
+<a href="#" onclick="refreshAll(); return false;">Refresh</a><br />
+<a href="#" onclick="UnsettledFriends(); return false;">Unsettled</a><br />
+<a href="#" onclick="AllFriends(); return false;">* Friends</a><br />
+<a href="#" onclick="AllCollections(); return false;">* Collections</a><br />
+<br /><br /><br /><br />
+</div><!-- left -->
+
+<div id="center">
+<div id="AddFriendBox" style="display:none;" class="b">
+	<a href="#" class="delete" onclick="$('#AddFriendBox').hide(); return false;">x</a>
+	<form action="" method="POST" onsubmit="inviteFriend(this); return false;">
+		<div style="display:none;" id="AddFriendError"></div>
+		<dl>
+		<dt><label for="passport">Passport:</label></dt><dd><input type="text" id="AddFriendPassport" name="passport" size="100" /></dd><br />
+		<dt>&nbsp;</dt><dd><input type="submit" value="Invite" /></dd>
+		</dl>
+	</form>
+</div><!-- AddFriendBox -->
+
+<div id="AddContentBox" style="display:none;" class="b">
+	<a href="#" class="delete" onclick="$('#AddContentBox').hide(); return false;">x</a>
+	<form action="" method="POST" onsubmit="saveData(this); return false;">
+		<div style="display:none;" id="AddContentError"></div>
+		<!--<dl>
+		<dt><label for="key">Collection:</label></dt><dd><select name="collection" id="content_collection"><option value="public">Public</option><option value="profile">Profile</option></select></dd><br />
+		<dt><label for="key">Key:</label></dt><dd><input type="text" id="content_key" name="key" size="40" /></dd><br />
+		<dt><label for="body">Body:</label></dt><dd><textarea id="content_body" name="body" cols="60" rows="3"></textarea></dd><br />
+		<dt>&nbsp;</dt><dd><input type="submit" value="Save" /></dd>
+		</dl>-->
+		Subject: <input type="text" id="content_key" name="key" size="70" style="border:1px solid #000;" /><br />
+		<img src="/images/post1.png" alt="post" style="position:relative; left:17px; top:13px; z-index:3;" />
+		<textarea id="content_body" name="body" style="position:relative; z-index:2; border:1px solid #000;" cols="60" rows="3"></textarea>
+		<input type="submit" value="Save" /><br />
+		<select name="collection" id="content_collection" style="margin-left:70px;"><option value="public">Public</option><option value="profile">Profile</option></select>
+	</form>
+</div><!-- AddFriendBox -->
+
+<div id="body">
+<!-- Top is a placeholder to insertAfter -->
+<div id="top"></div>
+
+</div><!-- body -->
+</div><!-- center -->
+</div><!-- main -->
+
+<div id="mextended" style="display:none;position:absolute;" onclick="mextBody(); return false;">
+Something here.
+</div><!-- me extended -->
+</body>
+</html>
