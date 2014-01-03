@@ -269,6 +269,7 @@ func (this *upnpNAT) soapRequest(function, message string) (*http.Response, erro
 </s:Envelope>`
 
 	soap := fmt.Sprintf(format, message)
+	// log.Println("Message:  ", soap)
 
 	req, err := http.NewRequest("POST", this.serviceURL, strings.NewReader(soap))
 	if err != nil {
@@ -286,7 +287,7 @@ func (this *upnpNAT) soapRequest(function, message string) (*http.Response, erro
 	if err != nil {
 		return resp, err
 	}
-	defer resp.Body.Close()
+	// defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		// log.Stderr(function, r.StatusCode)
@@ -306,14 +307,18 @@ func (this *upnpNAT) getExternalIPAddress() (*externalIP, error) {
 	msg := fmt.Sprintf(format, this.service)
 	resp, err := this.soapRequest("GetExternalIPAddress", msg)
 	if err != nil {
+		log.Println("soapRequest returned error:", err)
 		return nil, err
 	}
 
 	var addr externalIP
 	err = xml.NewDecoder(resp.Body).Decode(&addr)
 	if err != nil {
+		log.Println("newDecoder returned error:", err)
 		return nil, err
 	}
+
+	defer resp.Body.Close()
 
 	return &addr, nil
 }
@@ -332,8 +337,7 @@ func (this *upnpNAT) AddPortMapping(
 	internalPort, externalPort uint16,
 	description string,
 	timeout int) (uint16, error) {
-	const format = `
-<u:AddPortMapping xmlns:u="urn:schemas-upnp-org:service:%s:1">
+	const format = `<u:AddPortMapping xmlns:u="urn:schemas-upnp-org:service:%s:1">
 	<NewRemoteHost></NewRemoteHost>
 	<NewExternalPort>%d</NewExternalPort>
 	<NewProtocol>%s</NewProtocol>
@@ -344,9 +348,13 @@ func (this *upnpNAT) AddPortMapping(
 	<NewLeaseDuration>%d</NewLeaseDuration>
 </u:AddPortMapping>`
 
+	// TODO:  Currently UPnP has to override default value, sets to 0 - determine why Netgear routers return status 500 if this value is > 0
+	timeout = 0
+
 	msg := fmt.Sprintf(format,
 		this.service, externalPort, proto, internalPort, this.ourIP, description, timeout)
 	_, err := this.soapRequest("AddPortMapping", msg)
+	//	log.Println("AddPortMapping,", msg)
 	if err != nil {
 		log.Println("soapRequest returned error:", err)
 		return 0, err

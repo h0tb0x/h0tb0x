@@ -10,6 +10,7 @@ import (
 	"h0tb0x/rendezvous"
 	"h0tb0x/transfer"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"sync"
@@ -112,6 +113,7 @@ func NewLinkMgr(theBase *base.Base, connMgr conn.ConnMgr) *LinkMgr {
 	return this
 }
 
+// Respond to a rejected/malformed request with an error code and message
 func (this *LinkMgr) respondError(response http.ResponseWriter, status int, err string) {
 	this.Log.Print(err)
 	response.Header().Set("Content-Type", "text/plain")
@@ -128,13 +130,13 @@ func (this *LinkMgr) ServeHTTP(response http.ResponseWriter, request *http.Reque
 	}
 
 	if len(state.PeerCertificates) < 1 {
-		this.respondError(response, http.StatusForbidden, "Missing peer certificicate")
+		this.respondError(response, http.StatusForbidden, "Missing peer certificate")
 		return
 	}
 
 	ident, err := crypto.PublicFromCert(state.PeerCertificates[0])
 	if err != nil {
-		this.respondError(response, http.StatusForbidden, "Invalid peer certificicate")
+		this.respondError(response, http.StatusForbidden, "Invalid peer certificate")
 		return
 	}
 
@@ -276,7 +278,7 @@ func (this *LinkMgr) AddHandler(service int, handler HandlerFunc) {
 	this.handlers[service] = handler
 }
 
-// Add a listener to get link status notificiations
+// Add a listener to get link status notifications
 func (this *LinkMgr) AddListener(listener ListenerFunc) {
 	this.listeners = append(this.listeners, listener)
 }
@@ -426,15 +428,25 @@ func (this *LinkMgr) RemoveFriend(fp *crypto.Digest) {
 
 // Send a request to a friend and get a response
 func (this *LinkMgr) Send(service int, id int, req io.Reader, wr io.Writer) error {
+
 	fi := this.friendsById[id]
 	url := fmt.Sprintf("h0tb0x://%s/h0tb0x/%d", fi.fingerprint, service)
 	resp, err := this.client.Post(url, "application/binary", req)
 	if err != nil {
-		return err
+		return fmt.Errorf("Error - Post failed:  %s", err.Error())
 	}
+
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("RPC had non 200 http return code: %d", resp.StatusCode)
+		if resp.ContentLength > 0 {
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				return fmt.Errorf("Error reading response Body:  %s", err.Error())
+			}
+			return fmt.Errorf("RPC responded with http error code %d.  Reason:  %s", resp.StatusCode, body)
+		} else {
+			return fmt.Errorf("RPC responded with non-200 http return code: %d", resp.StatusCode)
+		}
 	}
 	if resp.Header.Get("Content-Type") != "application/binary" {
 		return fmt.Errorf("Content type mismatch")

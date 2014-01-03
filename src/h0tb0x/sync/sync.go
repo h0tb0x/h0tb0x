@@ -87,12 +87,14 @@ func (this *clientLooper) safeSleep(until time.Time) {
 	}
 }
 
+// Attempt to create a notify connection to a friend
 func (this *clientLooper) safeSend(in io.Reader, out io.Writer) error {
 	tryTime := time.Now()
 	err := this.sync.Send(link.ServiceNotify, this.friendId, in, out)
 	if err != nil {
 		// If err was fast, wait a bit
-		this.sync.Log.Printf("Error %s, retrying!\n", err)
+		// TODO:  Capability to not continue retrying if a connection error or refusal is detected.
+		this.sync.Log.Printf("Error - \"%s\" - retrying!\n", err)
 		this.safeSleep(tryTime.Add(FailureRetry))
 	}
 	return err
@@ -126,7 +128,7 @@ func (this *clientLooper) notifyLoop() {
 			data = append(data, m)
 		}
 		if len(data) > 0 {
-			this.sync.Log.Printf("Doing an notify of %d rows\n", len(data))
+			this.sync.Log.Printf("Attempting a notify of %d row(s) to friend %d\n", len(data), this.friendId)
 			this.lock.Unlock()
 			var send_buf, recv_buf bytes.Buffer
 			transfer.Encode(&send_buf, data)
