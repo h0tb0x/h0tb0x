@@ -27,13 +27,13 @@ func (this *Route) Length() int {
 }
 
 // Pushes a new entry on the end of the route
-func (this *Route) Push(key *crypto.SymmetricKey, next uint64) {
+func (this *Route) Push(key *crypto.SymmetricKey, next uint32) {
 	// Encode the message and add to end of array
 	this.impl = append(this.impl, key.EncodeMessage(next))
 }
 
 // Removes the top entry, returns err if empty or not able to decode
-func (this *Route) Pop(key *crypto.SymmetricKey) (out uint64, err error) {
+func (this *Route) Pop(key *crypto.SymmetricKey) (out uint32, err error) {
 	// Check for empty route
 	if len(this.impl) == 0 {
 		err = fmt.Errorf("Trying to get top element from empty route")
