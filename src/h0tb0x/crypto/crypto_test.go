@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"h0tb0x/transfer"
+	"encoding/hex"
 	"testing"
 )
 
@@ -140,3 +141,19 @@ func TestTinyMessage(t *testing.T) {
 		t.Fatal("Decoding with wrong key works")
 	}
 }
+
+func TestWorkToken(t *testing.T) {
+	nonceBest := Nonce(0)
+	wtBest := uint32(0)
+	t.Logf("Working on tokens")
+	digest := HashOf("Hello")
+	for i := Nonce(0); i < Nonce(1000000); i++ {
+		wt := ComputeWorkToken(digest, Timestamp(0), i) 
+		if wt > wtBest {
+			nonceBest = i
+			wtBest = wt
+		}
+	}
+	t.Logf("Work token: %d: %s", wtBest, hex.Dump(transfer.AsBytes(nonceBest)))
+}
+

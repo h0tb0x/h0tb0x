@@ -40,6 +40,9 @@ func (this *Digest) Decode(stream io.Reader) error {
 // Compares two digests for equality
 func (this *Digest) Equal(other *Digest) bool { return bytes.Equal(this.impl, other.impl) }
 
+// Compares two digests for order
+func (this *Digest) Compare(other *Digest) int { return bytes.Compare(this.impl, other.impl) }
+
 // Converts to a string
 func (this *Digest) String() string { return transfer.AsString(this) }
 
@@ -448,6 +451,67 @@ func RandomString() string {
 		panic(err)
 	}
 	return base64.URLEncoding.EncodeToString(bytes)
+}
+
+func (this* Digest) Front32() uint32 {
+	buf := this.impl
+	return uint32(buf[0]) << 24 | uint32(buf[1]) << 16 | uint32(buf[2]) << 8 | uint32(buf[3])
+}
+
+type Nonce uint32
+type Timestamp uint32
+
+// Implements the h0tb0x transfer protocol
+func (this Nonce) Encode(stream io.Writer) error {
+	num := uint32(this)
+	buf := []byte{ 
+		byte(num >> 24), 
+		byte(num >> 16 & 0xff),
+		byte(num >> 8 & 0xff),
+		byte(num & 0xff),
+	}
+	_, err := stream.Write(buf)
+	return err
+}
+
+// Implements the h0tb0x transfer protocol
+func (this *Nonce) Decode(stream io.Reader) error {
+	buf := make([]byte, 4)
+	_, err := io.ReadFull(stream, buf)
+	if err == nil {
+		num := uint32(buf[0]) << 24 | uint32(buf[1]) << 16 | uint32(buf[2]) << 8 | uint32(buf[3])
+		*this = Nonce(num)
+	}
+	return err
+}
+
+// Implements the h0tb0x transfer protocol
+func (this Timestamp) Encode(stream io.Writer) error {
+	num := uint32(this)
+	buf := []byte{ 
+		byte(num >> 24), 
+		byte(num >> 16 & 0xff),
+		byte(num >> 8 & 0xff),
+		byte(num & 0xff),
+	}
+	_, err := stream.Write(buf)
+	return err
+}
+
+// Implements the h0tb0x transfer protocol
+func (this *Timestamp) Decode(stream io.Reader) error {
+	buf := make([]byte, 4)
+	_, err := io.ReadFull(stream, buf)
+	if err == nil {
+		num := uint32(buf[0]) << 24 | uint32(buf[1]) << 16 | uint32(buf[2]) << 8 | uint32(buf[3])
+		*this = Timestamp(num)
+	}
+	return err
+}
+
+func ComputeWorkToken(digest *Digest, timestamp Timestamp, nonce Nonce) uint32 {
+	d2 := HashOf(digest, timestamp, nonce)
+	return d2.Front32()
 }
 
 /*

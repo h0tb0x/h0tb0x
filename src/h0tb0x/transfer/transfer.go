@@ -181,6 +181,12 @@ func readString(in io.Reader, obj reflect.Value) {
 
 func writeAny(out io.Writer, obj reflect.Value) {
 	//fmt.Printf("Doing write of %s\n", obj.Type())
+	meth_val, has_spec_val := obj.Type().MethodByName("Encode")
+	if has_spec_val {
+		//fmt.Printf("GOT BY VALUE\n")
+		callSpecial(meth_val.Func, obj, reflect.ValueOf(out))
+		return
+	}
 	meth, has_spec := reflect.PtrTo(obj.Type()).MethodByName("Encode")
 	if has_spec {
 		callSpecial(meth.Func, obj.Addr(), reflect.ValueOf(out))
